@@ -1,0 +1,1216 @@
+@import "tailwindcss";
+
+/*
+ * 全站视觉：接近 Apple Liquid Glass（液态玻璃）
+ * 为何半透明 + blur/saturate：让顶栏/卡片/弹层折射背景氛围，而非厚重实色块。
+ * 为何 blur 控制在 14–28px：过大在 Android/微信 WebView 易掉帧；列表卡略轻于顶栏。
+ */
+:root {
+  --bg: #eaf2f8;
+  --bg-deep: #d7e6f2;
+  --ink: #0f172a;
+  --muted: #4a5d70;
+  --line: rgba(15, 23, 42, 0.1);
+  --brand: #0ea5e9;
+  --brand-strong: #0284c7;
+  --brand-soft: rgba(14, 165, 233, 0.12);
+  /* 喜火：精致玫红/珊瑚，作点缀而非主色 */
+  --fire: #f43f5e;
+  --fire-strong: #e11d48;
+  --fire-soft: rgba(244, 63, 94, 0.1);
+  --accent: var(--fire);
+  --accent-soft: var(--fire-soft);
+  /* 玻璃层：有 backdrop 时偏透；无滤镜时用 *-fallback 抬不透明度保证可读 */
+  --card: rgba(255, 255, 255, 0.42);
+  --card-soft: rgba(255, 255, 255, 0.32);
+  --card-bar: rgba(255, 255, 255, 0.48);
+  --card-panel: rgba(255, 255, 255, 0.58);
+  --card-fallback: rgba(255, 255, 255, 0.94);
+  --card-soft-fallback: rgba(255, 255, 255, 0.9);
+  --card-bar-fallback: rgba(255, 255, 255, 0.96);
+  --card-panel-fallback: rgba(255, 255, 255, 0.97);
+  --glass-blur: 22px;
+  --glass-blur-soft: 14px;
+  --glass-blur-bar: 26px;
+  --glass-saturate: 1.7;
+  /* 细白边高光：上沿更亮，模拟液面折射 */
+  --glass-edge: rgba(255, 255, 255, 0.72);
+  --glass-edge-dim: rgba(255, 255, 255, 0.28);
+  --glass-sheen: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.62) 0%,
+    rgba(255, 255, 255, 0.18) 38%,
+    rgba(255, 255, 255, 0.08) 62%,
+    rgba(255, 255, 255, 0.28) 100%
+  );
+  --glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    inset 0 -0.5px 0 rgba(255, 255, 255, 0.18);
+  /* 阴影极轻：液态玻璃靠边光分层，避免「浮块」重阴影 */
+  --shadow: 0 1px 1px rgba(15, 23, 42, 0.03), 0 10px 32px rgba(15, 23, 42, 0.05);
+  /* 氛围底：极淡冷色渐变，给玻璃「有东西可透」；刻意避开紫白/奶油陶土 */
+  --site-bg-layers:
+    radial-gradient(ellipse 90% 55% at 8% -8%, rgba(14, 165, 233, 0.22), transparent 58%),
+    radial-gradient(ellipse 60% 42% at 92% 0%, rgba(56, 189, 248, 0.12), transparent 50%),
+    radial-gradient(ellipse 50% 36% at 78% 100%, rgba(244, 63, 94, 0.07), transparent 55%),
+    radial-gradient(ellipse 40% 28% at 20% 85%, rgba(14, 165, 233, 0.08), transparent 50%),
+    linear-gradient(180deg, #f7fbfe 0%, var(--bg) 42%, #e4eef6 100%);
+  --surface-radius: 26px;
+  --surface-pad: 1.25rem;
+  /* 触控控件统一高度（≈44px）与连续圆角节奏 */
+  --control-h: 2.75rem;
+  --control-h-sm: 2.25rem;
+  --control-radius: 14px;
+  --control-radius-pill: 999px;
+  --control-pad-x: 1.15rem;
+  --control-pad-x-sm: 0.85rem;
+  --font-weight-ui: 600;
+  /* 站长可在「网站装扮 → 字号」覆盖；默认导航略大于原先 16px */
+  --fs-nav: 18px;
+  --fs-brand: 18px;
+  --fs-hero-title: 36px;
+  --fs-hero-sub: 17px;
+  --fs-section-title: 24px;
+  --fs-section-desc: 14px;
+  --fs-portal-card-title: 18px;
+  --fs-portal-card-desc: 14px;
+  /* 构建不依赖 Google Fonts；有本机/系统字体时优先，否则中文系统黑体 */
+  --font-body: "Manrope", "Segoe UI", "PingFang SC", "Microsoft YaHei",
+    sans-serif;
+  --font-display: "Space Grotesk", "Segoe UI", "PingFang SC", "Microsoft YaHei",
+    sans-serif;
+  /* 倾斜视差：由 TiltParallaxProvider 写入 -1..1；关闭时保持 0 */
+  --tilt-x: 0;
+  --tilt-y: 0;
+  --tilt-max-fg: 10px;
+  --tilt-max-mid: 6px;
+  --tilt-max-bg: 3px;
+  --tilt-max-card: 5px;
+}
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--ink);
+  --font-sans: var(--font-body);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  /* 站长装扮写入 --site-bg-layers；无配置时回退 :root 默认层 */
+  background: var(--site-bg-layers);
+  background-attachment: scroll;
+  font-family: var(--font-body), "PingFang SC", "Microsoft YaHei", sans-serif;
+  /* 微信内偶发横向微溢出导致整页可左右拖；抽屉用 fixed 不受影响 */
+  overflow-x: hidden;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+/* 内容区加宽：减少宽屏左右留白，多排内容 */
+.container {
+  /* 窄屏左右各留足边距，避免贴边与微信安全区冲突 */
+  width: min(1600px, calc(100% - 1.25rem));
+  max-width: 100%;
+  margin-inline: auto;
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+@media (min-width: 1280px) {
+  .container {
+    width: min(1760px, calc(100% - 1.5rem));
+  }
+}
+
+.brand-mark {
+  position: relative;
+  display: inline-block;
+  font-family: var(--font-display), var(--font-body), sans-serif;
+  letter-spacing: -0.02em;
+}
+
+.brand-mark::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 12%;
+  bottom: -0.12em;
+  height: 0.12em;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--fire) 0%,
+    rgba(244, 63, 94, 0.35) 55%,
+    transparent 100%
+  );
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+/*
+ * 主玻璃面：卡片 / 登录框 / studio 面板共用。
+ * 双层边（外细白 + 内高光）+ 轻微 sheen，避免实色白块。
+ */
+.surface {
+  background: var(--glass-sheen), var(--card);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--surface-radius);
+  backdrop-filter: blur(var(--glass-blur-soft)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur-soft))
+    saturate(var(--glass-saturate));
+  box-shadow: var(--glass-inset), 0 0 0 1px var(--glass-edge-dim), var(--shadow);
+  color: var(--ink);
+}
+
+/* 列表卡略轻：blur 更小，减少滚动卡顿 */
+.surface-soft {
+  background: var(--glass-sheen), var(--card-soft);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--surface-radius);
+  backdrop-filter: blur(12px) saturate(1.45);
+  -webkit-backdrop-filter: blur(12px) saturate(1.45);
+  box-shadow: var(--glass-inset), 0 0 0 1px var(--glass-edge-dim),
+    0 1px 1px rgba(15, 23, 42, 0.025), 0 6px 20px rgba(15, 23, 42, 0.04);
+  color: var(--ink);
+}
+
+/* 顶栏 / 底栏：更强 blur，贴边可仍保持液面感 */
+.glass-bar {
+  background: var(--glass-sheen), var(--card-bar);
+  border-color: var(--glass-edge);
+  backdrop-filter: blur(var(--glass-blur-bar)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur-bar))
+    saturate(var(--glass-saturate));
+  box-shadow: var(--glass-inset), 0 0 0 1px var(--glass-edge-dim);
+}
+
+/* 弹层 / 抽屉面板：略不透明，保证长文可读 */
+.glass-panel {
+  background: var(--glass-sheen), var(--card-panel);
+  border: 1px solid var(--glass-edge);
+  border-radius: calc(var(--surface-radius) + 6px);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: var(--glass-inset), 0 0 0 1px var(--glass-edge-dim),
+    0 16px 48px rgba(15, 23, 42, 0.12);
+  color: var(--ink);
+}
+
+/* 汉堡抽屉：定位仍用 inline（兼容部分微信 X5），外观走玻璃类 */
+.glass-drawer {
+  background: var(--glass-sheen), var(--card-panel) !important;
+  border-left: 1px solid var(--glass-edge) !important;
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.55),
+    -10px 0 36px rgba(15, 23, 42, 0.1) !important;
+}
+
+/* 装扮「紧凑/留白」时可选：给未写死 padding 的表面一点呼吸感 */
+.surface-pad {
+  padding: var(--surface-pad);
+}
+
+.surface-fire {
+  box-shadow: var(--glass-inset), 0 0 0 1px rgba(244, 63, 94, 0.14), var(--shadow);
+}
+
+/*
+ * 微信 / 旧 Android：无 backdrop-filter 时提高不透明度，避免「透到底图看不清字」。
+ * 用 @supports not 回退，有滤镜的机型仍走半透明液态玻璃。
+ */
+@supports not (
+  (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+) {
+  .surface {
+    background: var(--card-fallback);
+  }
+  .surface-soft {
+    background: var(--card-soft-fallback);
+  }
+  .glass-bar {
+    background: var(--card-bar-fallback);
+  }
+  .glass-panel,
+  .glass-drawer {
+    background: var(--card-panel-fallback) !important;
+  }
+  .btn-secondary,
+  .chip-idle,
+  .field {
+    background: rgba(255, 255, 255, 0.96);
+  }
+}
+
+/*
+ * 倾斜视差分层（裸眼感，非真立体屏）。
+ * 仅 html.tilt-on 时生效；列表卡用整卡轻位移，避免每张卡多层 transform 过重。
+ */
+html.tilt-on .tilt-layer-fg {
+  transform: translate3d(
+    calc(var(--tilt-x) * var(--tilt-max-fg)),
+    calc(var(--tilt-y) * var(--tilt-max-fg)),
+    0
+  );
+  will-change: transform;
+}
+
+html.tilt-on .tilt-layer-mid {
+  transform: translate3d(
+    calc(var(--tilt-x) * var(--tilt-max-mid)),
+    calc(var(--tilt-y) * var(--tilt-max-mid)),
+    0
+  );
+  will-change: transform;
+}
+
+html.tilt-on .tilt-layer-bg {
+  transform: translate3d(
+    calc(var(--tilt-x) * var(--tilt-max-bg) * -1),
+    calc(var(--tilt-y) * var(--tilt-max-bg) * -1),
+    0
+  );
+  will-change: transform;
+}
+
+/* 玻璃顶栏：极轻错位 + 阴影偏移，强化液面感 */
+html.tilt-on .tilt-glass-bar {
+  transform: translate3d(
+    calc(var(--tilt-x) * 3px),
+    calc(var(--tilt-y) * 2px),
+    0
+  );
+  box-shadow: var(--glass-inset), 0 0 0 1px var(--glass-edge-dim),
+    calc(var(--tilt-x) * -4px) calc(var(--tilt-y) * 4px + 6px) 22px
+      rgba(15, 23, 42, 0.08);
+  will-change: transform, box-shadow;
+}
+
+/* 约搭/课程列表卡：整卡轻量，不做子层（滚动性能优先） */
+html.tilt-on .tilt-card {
+  transform: translate3d(
+    calc(var(--tilt-x) * var(--tilt-max-card)),
+    calc(var(--tilt-y) * var(--tilt-max-card)),
+    0
+  );
+  box-shadow: var(--glass-inset), 0 0 0 1px var(--glass-edge-dim),
+    calc(var(--tilt-x) * -5px) calc(var(--tilt-y) * 6px + 8px) 24px
+      rgba(15, 23, 42, 0.07);
+  will-change: transform, box-shadow;
+}
+
+html.tilt-on .tilt-hero-frame {
+  transform: perspective(900px) rotateY(calc(var(--tilt-x) * -3deg))
+    rotateX(calc(var(--tilt-y) * 3deg))
+    translate3d(
+      calc(var(--tilt-x) * 4px),
+      calc(var(--tilt-y) * 4px),
+      0
+    );
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+/* 视差开启时停掉 float 动画，避免与 tilt transform 抢同一属性 */
+html.tilt-on .float-soft {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.tilt-on .tilt-layer-fg,
+  html.tilt-on .tilt-layer-mid,
+  html.tilt-on .tilt-layer-bg,
+  html.tilt-on .tilt-glass-bar,
+  html.tilt-on .tilt-card,
+  html.tilt-on .tilt-hero-frame {
+    transform: none !important;
+    will-change: auto !important;
+  }
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  box-sizing: border-box;
+  border-radius: var(--control-radius-pill);
+  /* 触控友好：约 44px 高，微信内也易点；同组按钮勿再各写一套 padding 破坏对称 */
+  min-height: var(--control-h);
+  padding: 0.65rem var(--control-pad-x);
+  border: 1px solid transparent;
+  font-size: 0.9375rem;
+  font-weight: var(--font-weight-ui);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  box-shadow: none;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease,
+    opacity 160ms ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+}
+
+/* 卡片内并排操作：同高同字号同内边距，仅颜色语义区分 */
+.btn-compact {
+  min-height: var(--control-h-sm);
+  padding: 0.45rem var(--control-pad-x-sm);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.btn-primary {
+  background: var(--brand);
+  color: #ffffff;
+}
+
+.btn-primary:hover {
+  background: var(--brand-strong);
+}
+
+.btn-secondary {
+  background: var(--glass-sheen), rgba(255, 255, 255, 0.38);
+  border-color: var(--glass-edge);
+  color: var(--ink);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  box-shadow: var(--glass-inset);
+}
+
+.btn-secondary:hover,
+.btn-secondary:active {
+  background: var(--glass-sheen), rgba(255, 255, 255, 0.55);
+  border-color: rgba(255, 255, 255, 0.85);
+}
+
+/*
+ * 危险操作（删除等）：浅红底 + 红字，与次要按钮同重量。
+ * 绝不用品牌蓝当删除主色，避免「编辑/删除」视觉失衡。
+ */
+.btn-danger {
+  background: var(--fire-soft);
+  border-color: color-mix(in srgb, var(--fire) 18%, transparent);
+  color: var(--fire-strong);
+}
+
+.btn-danger:hover {
+  background: color-mix(in srgb, var(--fire) 16%, white);
+  border-color: color-mix(in srgb, var(--fire) 28%, transparent);
+}
+
+/* 实心强调（如注册）：喜火点缀 CTA，非删除语义 */
+.btn-fire {
+  background: var(--fire);
+  color: #ffffff;
+}
+
+.btn-fire:hover {
+  background: var(--fire-strong);
+}
+
+.btn-accent {
+  background: var(--fire);
+  color: #ffffff;
+}
+
+.btn-accent:hover {
+  background: var(--fire-strong);
+}
+
+/* 筛选/工作室胶囊：与按钮同高度节奏，激活实心品牌色 */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: var(--control-h);
+  padding: 0.5rem var(--control-pad-x);
+  border-radius: var(--control-radius-pill);
+  border: 1px solid transparent;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.chip-idle {
+  background: var(--glass-sheen), rgba(255, 255, 255, 0.34);
+  border-color: var(--glass-edge);
+  color: var(--muted);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  box-shadow: var(--glass-inset);
+}
+
+.chip-idle:active {
+  background: var(--glass-sheen), rgba(255, 255, 255, 0.52);
+}
+
+.chip-active {
+  background: var(--brand);
+  border-color: transparent;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.badge-fire {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem;
+  background: var(--fire-soft);
+  color: var(--fire-strong);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.hero-glow {
+  position: relative;
+}
+
+.hero-glow::before {
+  content: "";
+  position: absolute;
+  inset: -12% -8% auto;
+  height: 70%;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(244, 63, 94, 0.16),
+    rgba(14, 165, 233, 0.08) 45%,
+    transparent 70%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+.hero-glow > * {
+  position: relative;
+  z-index: 1;
+}
+
+.field {
+  width: 100%;
+  border: 1px solid var(--glass-edge);
+  background: var(--glass-sheen), rgba(255, 255, 255, 0.55);
+  border-radius: var(--control-radius);
+  padding: 0.85rem 1rem;
+  /* ≥16px，避免 iOS/微信 WebView 聚焦时整页缩放 */
+  font-size: 1rem;
+  outline: none;
+  min-height: var(--control-h);
+  backdrop-filter: blur(10px) saturate(1.3);
+  -webkit-backdrop-filter: blur(10px) saturate(1.3);
+  box-shadow: var(--glass-inset);
+  color: var(--ink);
+}
+
+.field:focus {
+  border-color: color-mix(in srgb, var(--brand) 55%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 12%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--fire) 14%, transparent);
+}
+
+/*
+ * 日期/时间控件全局放大：原生 picker 图标默认偏小，手机微信里难点。
+ * 统一抬高点击区与日历图标；弹层面板字号尽量随控件放大（OS 原生层仍有上限）。
+ */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+input[type="month"],
+input[type="week"] {
+  min-height: 3rem; /* 48px，满足触控推荐高度 */
+  padding: 0.75rem 0.95rem;
+  font-size: 1.125rem;
+  line-height: 1.45;
+}
+
+/* WebKit/Blink：放大字段段与日历/时钟图标的可点区域 */
+input[type="date"]::-webkit-datetime-edit,
+input[type="time"]::-webkit-datetime-edit,
+input[type="datetime-local"]::-webkit-datetime-edit,
+input[type="month"]::-webkit-datetime-edit,
+input[type="week"]::-webkit-datetime-edit {
+  font-size: 1.125rem;
+  padding: 0.2rem 0;
+}
+
+input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+input[type="time"]::-webkit-datetime-edit-fields-wrapper,
+input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper,
+input[type="month"]::-webkit-datetime-edit-fields-wrapper,
+input[type="week"]::-webkit-datetime-edit-fields-wrapper {
+  padding: 0.15rem 0;
+}
+
+input[type="date"]::-webkit-datetime-edit-text,
+input[type="time"]::-webkit-datetime-edit-text,
+input[type="datetime-local"]::-webkit-datetime-edit-text,
+input[type="month"]::-webkit-datetime-edit-text,
+input[type="week"]::-webkit-datetime-edit-text {
+  padding: 0 0.2rem;
+}
+
+input[type="date"]::-webkit-datetime-edit-year-field,
+input[type="date"]::-webkit-datetime-edit-month-field,
+input[type="date"]::-webkit-datetime-edit-day-field,
+input[type="time"]::-webkit-datetime-edit-hour-field,
+input[type="time"]::-webkit-datetime-edit-minute-field,
+input[type="time"]::-webkit-datetime-edit-second-field,
+input[type="time"]::-webkit-datetime-edit-ampm-field,
+input[type="datetime-local"]::-webkit-datetime-edit-year-field,
+input[type="datetime-local"]::-webkit-datetime-edit-month-field,
+input[type="datetime-local"]::-webkit-datetime-edit-day-field,
+input[type="datetime-local"]::-webkit-datetime-edit-hour-field,
+input[type="datetime-local"]::-webkit-datetime-edit-minute-field,
+input[type="datetime-local"]::-webkit-datetime-edit-second-field,
+input[type="datetime-local"]::-webkit-datetime-edit-ampm-field,
+input[type="month"]::-webkit-datetime-edit-year-field,
+input[type="month"]::-webkit-datetime-edit-month-field,
+input[type="week"]::-webkit-datetime-edit-year-field,
+input[type="week"]::-webkit-datetime-edit-week-field {
+  padding: 0.25rem 0.2rem;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="month"]::-webkit-calendar-picker-indicator,
+input[type="week"]::-webkit-calendar-picker-indicator {
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0.45rem;
+  margin-left: 0.35rem;
+  cursor: pointer;
+  opacity: 1;
+  /* scale 放大图标本身；padding 扩大触控热区，避免仅桌面 hover 才好点 */
+  transform: scale(1.35);
+  transform-origin: right center;
+  background-size: contain;
+}
+
+/* Firefox：用较大字号抬高控件观感（原生面板尺寸由系统决定） */
+@supports (-moz-appearance: none) {
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"],
+  input[type="month"],
+  input[type="week"] {
+    font-size: 1.2rem;
+    min-height: 3.1rem;
+  }
+}
+
+.fade-up {
+  animation: fadeUp 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.fade-up-delay {
+  animation: fadeUp 900ms cubic-bezier(0.22, 1, 0.36, 1) 120ms both;
+}
+
+.float-soft {
+  animation: floatSoft 5.5s ease-in-out infinite;
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes floatSoft {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+/* —— 装扮文字动画（轻量、CSS-only；微信/移动端友好）—— */
+.typo-role {
+  /* 扫光/渐变字需要 inline 才能正确 clip */
+}
+
+@keyframes typo-fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes typo-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@keyframes typo-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-4px);
+  }
+  60% {
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes typo-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes typo-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.03);
+  }
+}
+
+@keyframes typo-shine {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -120% 0;
+  }
+}
+
+@keyframes typo-breath {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.88;
+    transform: scale(1.015);
+  }
+}
+
+/* 打字机感：clip 逐步显现，不改布局宽度（微信友好） */
+@keyframes typo-typewriter {
+  from {
+    clip-path: inset(0 100% 0 0);
+    opacity: 0.85;
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+}
+
+/* 跑马灯感：轻微左右漂移，避免 overflow 截断与挡点击 */
+@keyframes typo-marquee {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(-4%);
+  }
+}
+
+/* 减弱动效：尊重系统设置，避免眩晕与微信耗电 */
+@media (prefers-reduced-motion: reduce) {
+  .typo-role,
+  .typo-nav,
+  .typo-brand,
+  .typo-hero-title,
+  .typo-hero-sub,
+  .typo-section-title,
+  .typo-section-desc,
+  .typo-portal-card-title,
+  .typo-portal-card-desc {
+    animation: none !important;
+  }
+}
+
+/* 学习页伪横屏全屏：iPhone/微信常锁竖屏，用旋转层铺满以便横屏看课 */
+html.learn-landscape-fs,
+body.learn-landscape-fs {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+.learn-video-shell {
+  position: relative;
+}
+
+/* 斜向重复水印：低对比度不挡操作，录屏仍可读身份 */
+.learn-watermark {
+  z-index: 2;
+}
+
+.learn-watermark-tile {
+  position: absolute;
+  inset: -40%;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3.5rem 2rem;
+  transform: rotate(-28deg);
+  font-size: 13px;
+  line-height: 1.2;
+  color: rgba(255, 255, 255, 0.22);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  user-select: none;
+  white-space: nowrap;
+}
+
+.learn-video-shell[data-landscape-fs="1"] {
+  position: fixed;
+  z-index: 10050;
+  background: #000;
+  /* 竖屏设备：把壳旋成横屏占满视口 */
+  top: 0;
+  left: 100vw;
+  width: 100vh;
+  height: 100vw;
+  max-width: none;
+  transform: rotate(90deg);
+  transform-origin: top left;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+/* 真横屏时不必再旋转，直接铺满 */
+@media (orientation: landscape) {
+  .learn-video-shell[data-landscape-fs="1"] {
+    inset: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    transform: none;
+  }
+}
+
+.learn-video-shell[data-landscape-fs="1"] video {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  aspect-ratio: auto;
+  object-fit: contain;
+  background: #000;
+}
+
+.learn-fs-exit {
+  position: absolute;
+  top: max(0.5rem, env(safe-area-inset-top, 0px));
+  right: max(0.5rem, env(safe-area-inset-right, 0px));
+  z-index: 2;
+  min-height: 2.75rem;
+  padding: 0.55rem 1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.learn-fs-enter {
+  /* 放右上，避免挡住底部原生进度条/全屏键 */
+  position: absolute;
+  top: 0.65rem;
+  right: 0.65rem;
+  z-index: 2;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.95rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* 约搭地图选点：自定义 pin，避免 Leaflet 默认图标打包路径断裂 */
+.meetup-map-pin-wrap {
+  background: transparent;
+  border: none;
+}
+.meetup-map-pin {
+  display: block;
+  width: 22px;
+  height: 22px;
+  margin: 0 auto;
+  border-radius: 50% 50% 50% 0;
+  background: var(--brand, #0ea5e9);
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  transform: rotate(-45deg);
+}
+.leaflet-container {
+  font: inherit;
+  touch-action: pan-x pan-y;
+  z-index: 0;
+}
+
+/* ============================================================
+ * 海岛/阳光装扮动效（仿 QQ 空间黄钻：海浪、阳光粒子、椰影、呼吸）
+ * 挂在 html[data-theme-fx=…]；仅 transform/opacity，微信内可降级；
+ * prefers-reduced-motion / 窄屏弱化，避免挡点击与耗电。
+ * 暖金圆形「阳光光斑」bokeh 已去掉：固定大圆挡视线，海浪/椰影/细粒子保留。
+ * ============================================================ */
+html[data-theme-fx^="island-"]::before,
+html[data-theme-fx^="island-"]::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  /* 不挡触控；z 低于抽屉/弹层(z-50)，高于普通内容光感 */
+  pointer-events: none;
+  z-index: 25;
+  will-change: transform, opacity;
+}
+
+/* 海浪层：底部柔波 */
+html[data-theme-fx="island-wave"]::before,
+html[data-theme-fx="island-lagoon"]::before {
+  background:
+    radial-gradient(ellipse 80% 28% at 50% 108%, rgba(45, 212, 191, 0.22), transparent 70%),
+    radial-gradient(ellipse 60% 22% at 20% 100%, rgba(56, 189, 248, 0.18), transparent 65%),
+    radial-gradient(ellipse 55% 20% at 85% 102%, rgba(125, 211, 252, 0.2), transparent 60%);
+  animation: island-wave-sway 9s ease-in-out infinite;
+  opacity: 0.9;
+}
+
+/* 椰影轻晃：斜向柔影（不含暖金圆斑） */
+html[data-theme-fx="island-palm"]::before {
+  background:
+    radial-gradient(ellipse 40% 55% at 92% -5%, rgba(22, 101, 52, 0.1), transparent 70%),
+    radial-gradient(ellipse 28% 40% at 8% 0%, rgba(20, 83, 45, 0.08), transparent 65%);
+  animation: island-palm-sway 11s ease-in-out infinite;
+  transform-origin: 90% 0%;
+  opacity: 0.88;
+}
+
+/* 第二层：细小白/水色闪点（去掉琥珀黄粒子，避免残留光斑感） */
+html[data-theme-fx="island-sunbeam"]::after,
+html[data-theme-fx="island-sparkle"]::after,
+html[data-theme-fx="island-lagoon"]::after {
+  background:
+    radial-gradient(circle 3px at 22% 30%, rgba(255, 255, 255, 0.75), transparent 70%),
+    radial-gradient(circle 2.5px at 45% 58%, rgba(255, 255, 255, 0.65), transparent 70%),
+    radial-gradient(circle 2px at 82% 62%, rgba(186, 230, 253, 0.7), transparent 70%),
+    radial-gradient(circle 1.5px at 35% 78%, rgba(255, 255, 255, 0.55), transparent 70%);
+  animation: island-sparkle-twinkle 6.5s ease-in-out infinite;
+  opacity: 0.7;
+}
+
+html[data-theme-fx="island-wave"]::after,
+html[data-theme-fx="island-palm"]::after {
+  background:
+    radial-gradient(circle 60px at 30% 20%, rgba(255, 255, 255, 0.35), transparent 60%);
+  animation: island-bokeh-drift 16s ease-in-out infinite reverse;
+  opacity: 0.55;
+}
+
+html[data-theme-fx="island-breath"]::after {
+  background:
+    radial-gradient(ellipse 70% 45% at 50% 40%, rgba(56, 189, 248, 0.1), transparent 60%);
+  animation: island-breath-glow 8s ease-in-out infinite;
+  opacity: 0.75;
+}
+
+@keyframes island-bokeh-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  33% {
+    transform: translate3d(1.5%, -1.2%, 0) scale(1.03);
+  }
+  66% {
+    transform: translate3d(-1.2%, 1%, 0) scale(0.98);
+  }
+}
+
+@keyframes island-wave-sway {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scaleX(1);
+  }
+  50% {
+    transform: translate3d(0, -1.5%, 0) scaleX(1.04);
+  }
+}
+
+@keyframes island-palm-sway {
+  0%,
+  100% {
+    transform: rotate(0deg) translate3d(0, 0, 0);
+  }
+  50% {
+    transform: rotate(1.2deg) translate3d(-0.6%, 0.4%, 0);
+  }
+}
+
+@keyframes island-sparkle-twinkle {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: translate3d(0, 0, 0);
+  }
+  40% {
+    opacity: 0.85;
+    transform: translate3d(0.4%, -0.6%, 0);
+  }
+  70% {
+    opacity: 0.5;
+    transform: translate3d(-0.3%, 0.3%, 0);
+  }
+}
+
+@keyframes island-breath-glow {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.04);
+  }
+}
+
+/* 窄屏/微信：可读字号、留白、顶栏安全区、双列模块改堆叠 */
+@media (max-width: 640px) {
+  :root {
+    --fs-nav: 15px;
+    --fs-brand: 16px;
+    --fs-hero-title: clamp(1.45rem, 6.2vw, 1.85rem);
+    --fs-hero-sub: 15px;
+    --fs-section-title: 1.25rem;
+    --fs-section-desc: 13px;
+    --fs-portal-card-title: 16px;
+    --fs-portal-card-desc: 13px;
+    --surface-pad: 1rem;
+    --control-pad-x: 1rem;
+  }
+
+  .container {
+    width: 100%;
+    padding-left: max(1rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1rem, env(safe-area-inset-right, 0px));
+  }
+
+  /* 顶栏避开刘海；略增左右内边距与内容区对齐 */
+  .glass-bar.sticky {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  /* DIY 左右栏：手机改为通栏堆叠，避免各 50% 窄条难读 */
+  .page-mod-col-half {
+    width: 100% !important;
+  }
+
+  /* DIY 绝对定位模块：窄屏改回文档流，避免重叠/裁切成「原始」感 */
+  .page-mod-absolute {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    width: 100% !important;
+    z-index: auto !important;
+    margin-bottom: 0.75rem;
+  }
+
+  html[data-theme-fx^="island-"]::before,
+  html[data-theme-fx^="island-"]::after {
+    opacity: 0.45;
+    animation-duration: 18s;
+  }
+}
+
+@media (min-width: 641px) {
+  .page-mod-col-half {
+    width: 50%;
+  }
+}
+
+/* 大学论坛顶部公告：醒目栏体动效；微信内同样可用，不依赖 hover */
+@keyframes forum-notice-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.015);
+  }
+}
+
+@keyframes forum-notice-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes forum-notice-shine {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(220%);
+  }
+}
+
+@keyframes forum-notice-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.forum-notice-pulse {
+  animation: forum-notice-pulse 1.8s ease-in-out infinite;
+}
+
+.forum-notice-float {
+  animation: forum-notice-float 2.4s ease-in-out infinite;
+}
+
+.forum-notice-shine {
+  isolation: isolate;
+}
+
+.forum-notice-shine-glint {
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  width: 42%;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.35) 50%,
+    transparent 100%
+  );
+  animation: forum-notice-shine 2.8s linear infinite;
+}
+
+.forum-notice-marquee {
+  overflow: hidden;
+}
+
+.forum-notice-marquee-track {
+  display: flex;
+  width: max-content;
+  gap: 3rem;
+  animation: forum-notice-marquee 18s linear infinite;
+}
+
+.forum-notice-marquee-item {
+  flex: none;
+  min-width: min(80vw, 36rem);
+}
+
+/* 高校分区帖子：小红书式瀑布流。列数随屏宽变，不依赖 hover / JS 库 */
+.forum-feed-masonry {
+  column-count: 2;
+  column-gap: 0.7rem;
+}
+
+.forum-feed-masonry > * {
+  display: inline-block;
+  width: 100%;
+  margin-bottom: 0.7rem;
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+@media (min-width: 640px) {
+  .forum-feed-masonry {
+    column-count: 3;
+    column-gap: 0.85rem;
+  }
+
+  .forum-feed-masonry > * {
+    margin-bottom: 0.85rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .forum-feed-masonry {
+    column-count: 4;
+  }
+}
+
+@media (min-width: 1280px) {
+  .forum-feed-masonry {
+    column-count: 5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme-fx^="island-"]::before,
+  html[data-theme-fx^="island-"]::after {
+    animation: none !important;
+    opacity: 0.25;
+  }
+
+  .forum-notice-pulse,
+  .forum-notice-float,
+  .forum-notice-shine-glint,
+  .forum-notice-marquee-track {
+    animation: none !important;
+  }
+}
