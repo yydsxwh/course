@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // 不自动生成 AGENTS.md / CLAUDE.md
+  agentRules: false,
   // webpack 生产构建不会自动编译工作区源码包，需显式转译。
   transpilePackages: [
     "@andyyyds/shared",
