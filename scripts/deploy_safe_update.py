@@ -8,6 +8,7 @@ import os
 import sys
 import tarfile
 import tempfile
+import textwrap
 import time
 from pathlib import Path
 
@@ -15,8 +16,16 @@ import paramiko
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-HOST = "47.242.157.181"
-USER = "admin"
+
+def resolve_host_user() -> tuple[str, str]:
+    raw = (os.environ.get("DEPLOY_HOST") or "47.242.157.181").strip()
+    if "@" in raw:
+        user, host = raw.split("@", 1)
+        return host.strip(), user.strip() or "admin"
+    return raw, (os.environ.get("DEPLOY_USER") or "admin").strip() or "admin"
+
+
+HOST, USER = resolve_host_user()
 # 默认打当前仓库根；可用 YYDS_LOCAL_PROJECT 覆盖（Windows / Cloud Agent 都能用）
 LOCAL_PROJECT = Path(os.environ.get("YYDS_LOCAL_PROJECT") or Path(__file__).resolve().parents[1])
 REMOTE_DIR = "/var/www/yyds-course-platform"
@@ -82,11 +91,52 @@ def make_tarball() -> Path:
     return tmp
 
 
+def load_deploy_key() -> paramiko.PKey:
+    """优先用环境变量 DEPLOY_SSH_KEY（可被存成单行 PEM），否则用 ~/.ssh/yyds_aliyun。"""
+    raw = (os.environ.get("DEPLOY_SSH_KEY") or "").strip()
+    if raw:
+        pem = raw.replace("\\n", "\n").replace("\r\n", "\n").replace("\r", "\n")
+        if pem.count("\n") <= 2:
+            import re
+
+            match = re.match(
+                r"-{5}BEGIN ([A-Z0-9 ]+)-{5}\s*(.*?)\s*-{5}END \1-{5}",
+                pem,
+                re.S,
+            )
+            if not match:
+                raise RuntimeError("DEPLOY_SSH_KEY 不是可识别的 PEM")
+            kind = match.group(1)
+            b64 = "".join(match.group(2).split())
+            pem = (
+                f"-----BEGIN {kind}-----\n"
+                + "\n".join(textwrap.wrap(b64, 64))
+                + f"\n-----END {kind}-----\n"
+            )
+        elif not pem.endswith("\n"):
+            pem += "\n"
+        tmp = Path(tempfile.gettempdir()) / "yyds-deploy-key.pem"
+        tmp.write_text(pem)
+        tmp.chmod(0o600)
+        for loader in (paramiko.RSAKey, paramiko.Ed25519Key, paramiko.ECDSAKey):
+            try:
+                return loader.from_private_key_file(str(tmp))
+            except Exception:  # noqa: BLE001
+                continue
+        raise RuntimeError("DEPLOY_SSH_KEY 无法作为 SSH 私钥加载")
+    return paramiko.Ed25519Key.from_private_key_file(_default_key_path())
+
+
+def _default_key_path() -> str:
+    env_tmp = Path(tempfile.gettempdir()) / "yyds-deploy-key.pem"
+    if env_tmp.exists():
+        return str(env_tmp)
+    return str(Path.home() / ".ssh" / "yyds_aliyun")
+
+
 def connect(retries: int = 8) -> paramiko.SSHClient:
     last: Exception | None = None
-    key = paramiko.Ed25519Key.from_private_key_file(
-        str(Path.home() / ".ssh" / "yyds_aliyun")
-    )
+    key = load_deploy_key()
     for i in range(retries):
         try:
             client = paramiko.SSHClient()
@@ -133,7 +183,7 @@ def run(client: paramiko.SSHClient, cmd: str, timeout: int = 1200) -> str:
 def upload_tarball(client: paramiko.SSHClient, tarball: Path) -> paramiko.SSHClient:
     """优先 paramiko SFTP（带 keepalive）；失败再试系统 scp。校验远端体积。"""
     local_size = tarball.stat().st_size
-    key_path = str(Path.home() / ".ssh" / "yyds_aliyun")
+    key_path = _default_key_path()
     remote_spec = f"{USER}@{HOST}:{REMOTE_TAR}"
 
     for attempt in range(1, 8):
@@ -283,8 +333,39 @@ def main() -> int:
     # 依赖可能有变更；不跑 seed，避免清业务数据
     run(client, f"cd {REMOTE_DIR} && npm install", timeout=900)
     run(client, f"cd {REMOTE_DIR} && npx prisma generate")
-    # Int→BigInt 等兼容扩列时 Prisma 会误报 data loss；SQLite 整数可安全拓宽
+    # 推 schema 前备份生产库；rsync 已排除 *.db，不会覆盖线上数据
+    run(
+        client,
+        f"mkdir -p {REMOTE_DIR}/.deploy_backup && "
+        f"cp -a {REMOTE_DIR}/prisma/prod.db "
+        f"{REMOTE_DIR}/.deploy_backup/prod.db.$(date +%Y%m%d%H%M%S)",
+    )
+    # 只做增量扩表/加列；不跑 seed / db reset
     run(client, f"cd {REMOTE_DIR} && npx prisma db push --accept-data-loss")
+    # 旧公共券码 → 活动+独立实例（幂等，不删订单/核销历史）
+    run(client, f"cd {REMOTE_DIR} && npm run db:migrate-coupons", timeout=600)
+    run(
+        client,
+        f"python3 - <<'PY'\n"
+        "import sqlite3\n"
+        f"con = sqlite3.connect('{REMOTE_DIR}/prisma/prod.db')\n"
+        "cur = con.cursor()\n"
+        "tables = {r[0] for r in cur.execute(\"SELECT name FROM sqlite_master WHERE type='table'\")}\n"
+        "need = ['CouponCampaign','CouponInstance','CouponAuditLog']\n"
+        "missing = [t for t in need if t not in tables]\n"
+        "if missing:\n"
+        "    raise SystemExit('missing tables: ' + ','.join(missing))\n"
+        "n_user = cur.execute('SELECT count(*) FROM User').fetchone()[0]\n"
+        "n_order = cur.execute('SELECT count(*) FROM \"Order\"').fetchone()[0]\n"
+        "n_coupon = cur.execute('SELECT count(*) FROM Coupon').fetchone()[0]\n"
+        "n_camp = cur.execute('SELECT count(*) FROM CouponCampaign').fetchone()[0]\n"
+        "n_inst = cur.execute('SELECT count(*) FROM CouponInstance').fetchone()[0]\n"
+        "print(f'DB_OK users={n_user} orders={n_order} coupons={n_coupon} campaigns={n_camp} instances={n_inst}')\n"
+        "if n_user < 1 or n_coupon < 1:\n"
+        "    raise SystemExit('production data looks empty after migrate; abort')\n"
+        "con.close()\n"
+        "PY",
+    )
     # 清 lock / 残留 .next，避免并发或半成品导致 pages-manifest ENOENT
     # 用 [n]ext 避免 pkill -f 误匹配当前 SSH 命令行把自己杀掉
     run(
