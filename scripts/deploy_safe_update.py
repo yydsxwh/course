@@ -340,8 +340,8 @@ def main() -> int:
         f"cp -a {REMOTE_DIR}/prisma/prod.db "
         f"{REMOTE_DIR}/.deploy_backup/prod.db.$(date +%Y%m%d%H%M%S)",
     )
-    # 只做增量扩表/加列；不跑 seed / db reset
-    run(client, f"cd {REMOTE_DIR} && npx prisma db push --accept-data-loss")
+    # 只做增量扩表/加列。禁止 --accept-data-loss，避免把生产库多出来的列（如 sessionEpoch）删掉。
+    run(client, f"cd {REMOTE_DIR} && npx prisma db push")
     # 旧公共券码 → 活动+独立实例（幂等，不删订单/核销历史）
     run(client, f"cd {REMOTE_DIR} && npm run db:migrate-coupons", timeout=600)
     run(

@@ -13,7 +13,11 @@ model User {
   passwordHash String
   /// 是否已设置可用登录密码；手机/微信自动注册且未设密码时为 false
   passwordSet  Boolean            @default(true)
+  /// 登出时自增；JWT.sv 对不上即视为已失效。生产库已有此列，必须保留。
+  sessionEpoch Int                @default(0)
   name         String
+  /// 对外展示用数字号（生产库已有此列，必须保留）
+  kkNumber     Int?
   /// 账号密码登录用的登录名（小写存储）；空/null 表示未开通账号登录，与邮箱登录分开
   username     String?            @unique
   bio          String             @default("")
@@ -468,6 +472,9 @@ model SiteSettings {
   smsSignName String @default("")
   /// 模板 CODE，须含 ${code} 变量
   smsTemplateCode String @default("")
+  smsTemplateCodeLogin    String @default("")
+  smsTemplateCodeRegister String @default("")
+  smsTemplateCodeBind     String @default("")
   /// 测试模式：不调运营商，验证码写服务端日志；可配固定码便于联调
   smsTestMode Boolean @default(true)
   /// 测试固定验证码（仅 testMode 时生效）；空则每次随机并打日志
