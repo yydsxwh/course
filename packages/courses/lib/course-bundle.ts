@@ -90,8 +90,9 @@ export async function replaceColumnBundleItems(
 export async function grantProductAccess(
   db: DbClient,
   input: { userId: string; productId: string },
+  options?: { skipChat?: boolean },
 ) {
-  await ensureEnrollment(db, input.userId, input.productId);
+  await ensureEnrollment(db, input.userId, input.productId, options?.skipChat);
 
   const product = await db.course.findUnique({
     where: { id: input.productId },
@@ -117,7 +118,7 @@ export async function grantProductAccess(
   if (product.productType !== "COLUMN") return;
 
   for (const item of product.bundleItems) {
-    await ensureEnrollment(db, input.userId, item.courseId);
+    await ensureEnrollment(db, input.userId, item.courseId, options?.skipChat);
   }
 }
 
@@ -125,6 +126,7 @@ async function ensureEnrollment(
   db: DbClient,
   userId: string,
   courseId: string,
+  skipChat?: boolean,
 ) {
   const existing = await db.enrollment.findUnique({
     where: { userId_courseId: { userId, courseId } },
@@ -143,25 +145,77 @@ async function ensureEnrollment(
       productType: true,
     },
   });
-  // 课程/专栏/资料：开通后自动进班级群（商城实体货与约搭壳不建班级群）
+  // 班级群走全局 prisma，不能放进交互式事务（SQLite 会锁死超时）。
   if (
-    course.productType === "COURSE" ||
-    course.productType === "COLUMN" ||
-    course.productType === "MATERIAL"
+    !skipChat &&
+    (course.productType === "COURSE" ||
+      course.productType === "COLUMN" ||
+      course.productType === "MATERIAL")
   ) {
-    try {
-      const { ensureCourseGroupAndJoin } = await import(
-        "@andyyyds/shared/chat/group-service"
-      );
-      await ensureCourseGroupAndJoin({
-        courseId: course.id,
-        teacherId: course.teacherId,
-        courseTitle: course.title,
-        userId,
-      });
-    } catch (err) {
-      console.error("[course:chat-group]", err);
+    await notifyCourseGroupSafe({
+      courseId: course.id,
+      teacherId: course.teacherId,
+      courseTitle: course.title,
+      userId,
+    });
+  }
+}
+
+/** 开通权限后的班级群副作用：必须在事务提交之后调用。 */
+export async function notifyCourseAccessGroups(input: {
+  userId: string;
+  productId: string;
+}) {
+  const product = await prisma.course.findUnique({
+    where: { id: input.productId },
+    select: {
+      id: true,
+      title: true,
+      teacherId: true,
+      productType: true,
+      bundleItems: { select: { courseId: true } },
+    },
+  });
+  if (!product) return;
+  const ids = [product.id];
+  if (product.productType === "COLUMN") {
+    ids.push(...product.bundleItems.map((item) => item.courseId));
+  }
+  for (const courseId of [...new Set(ids)]) {
+    const course = await prisma.course.findUnique({
+      where: { id: courseId },
+      select: { id: true, title: true, teacherId: true, productType: true },
+    });
+    if (
+      !course ||
+      (course.productType !== "COURSE" &&
+        course.productType !== "COLUMN" &&
+        course.productType !== "MATERIAL")
+    ) {
+      continue;
     }
+    await notifyCourseGroupSafe({
+      courseId: course.id,
+      teacherId: course.teacherId,
+      courseTitle: course.title,
+      userId: input.userId,
+    });
+  }
+}
+
+async function notifyCourseGroupSafe(input: {
+  courseId: string;
+  teacherId: string;
+  courseTitle: string;
+  userId: string;
+}) {
+  try {
+    const { ensureCourseGroupAndJoin } = await import(
+      "@andyyyds/shared/chat/group-service"
+    );
+    await ensureCourseGroupAndJoin(input);
+  } catch (err) {
+    console.error("[course:chat-group]", err);
   }
 }
 

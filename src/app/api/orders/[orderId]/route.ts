@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSession } from "@andyyyds/shared/auth";
+import { cancelOwnPendingOrder } from "@andyyyds/shared/create-order";
+import { expireStalePendingOrders } from "@andyyyds/shared/coupon-reservation";
 import { prisma } from "@andyyyds/shared/db";
+import { logOrderError, orderErrorPayload } from "@andyyyds/shared/order-errors";
 import {
   stringifyStoredAnswers,
   validateOrderFormAnswers,
@@ -25,6 +28,7 @@ export async function GET(
   }
 
   const { orderId } = await params;
+  await expireStalePendingOrders(prisma);
   let order = await prisma.order.findUnique({
     where: { id: orderId },
     include: {
@@ -101,7 +105,30 @@ export async function PATCH(
     });
 
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (error) {
+    logOrderError("orders:patch", error);
     return NextResponse.json({ error: "保存失败" }, { status: 400 });
+  }
+}
+
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<{ orderId: string }> },
+) {
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "请先登录" }, { status: 401 });
+  }
+  try {
+    const { orderId } = await params;
+    const result = await cancelOwnPendingOrder(prisma, {
+      userId: session.id,
+      orderId,
+    });
+    return NextResponse.json(result);
+  } catch (error) {
+    logOrderError("orders:cancel", error);
+    const { status, error: message } = orderErrorPayload(error);
+    return NextResponse.json({ error: message }, { status });
   }
 }

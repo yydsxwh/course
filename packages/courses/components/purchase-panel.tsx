@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useLocale } from "@/components/i18n/locale-provider";
 import { OrderFormFields } from "@/components/order-form-fields";
@@ -24,6 +24,8 @@ type AvailableCoupon = {
   discountCents: number;
   minAmount: number;
   expiresAt: string | null;
+  available?: boolean;
+  reason?: string;
 };
 
 type Props = {
@@ -73,15 +75,19 @@ export function PurchasePanel({
   const [couponCode, setCouponCode] = useState("");
   const [selectedCouponId, setSelectedCouponId] = useState("");
   const [available, setAvailable] = useState<AvailableCoupon[]>([]);
+  const [unavailable, setUnavailable] = useState<AvailableCoupon[]>([]);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const buyingRef = useRef(false);
   const [formAnswers, setFormAnswers] = useState<OrderFormAnswers>({});
   const fields = activeOrderFormFields(orderForm);
   const isMeetup = productLabel === "约搭";
 
-  // 分享链 ?coupon= 或本地记住的券码：预填输入框；点选列表仍以可用券为准
+  // 登录后拉取可用券；分享链 / 本地券码在回调里预填，避免 effect 同步 setState。
   useEffect(() => {
     if (isFree || price <= 0) return;
+    let cancelled = false;
+    let prefill = "";
     try {
       const params = new URLSearchParams(window.location.search);
       const fromQuery = normalizeCouponCode(
@@ -90,17 +96,10 @@ export function PurchasePanel({
       const fromStorage = normalizeCouponCode(
         window.localStorage.getItem(COUPON_STORAGE_KEY) || "",
       );
-      const code = fromQuery || fromStorage;
-      if (code) setCouponCode(code);
+      prefill = fromQuery || fromStorage;
     } catch {
       /* ignore */
     }
-  }, [isFree, price]);
-
-  // 登录后拉取可用券，供点选；最终以下单接口校验为准
-  useEffect(() => {
-    if (isFree || price <= 0) return;
-    let cancelled = false;
     (async () => {
       const res = await fetch(
         `/api/coupons/available?courseId=${encodeURIComponent(courseId)}`,
@@ -109,17 +108,15 @@ export function PurchasePanel({
       const data = await res.json();
       if (cancelled) return;
       const list = (data.coupons || []) as AvailableCoupon[];
+      const blocked = (data.unavailable || []) as AvailableCoupon[];
+      const typed = normalizeCouponCode(prefill);
+      const hit = typed
+        ? list.find((c) => normalizeCouponCode(c.code) === typed)
+        : undefined;
       setAvailable(list);
-      // 预填码若在可用列表中，自动点选以显示减免预览
-      setCouponCode((current) => {
-        const normalized = normalizeCouponCode(current);
-        if (!normalized) return current;
-        const hit = list.find(
-          (c) => normalizeCouponCode(c.code) === normalized,
-        );
-        if (hit) setSelectedCouponId(hit.id);
-        return normalized;
-      });
+      setUnavailable(blocked);
+      if (typed) setCouponCode(typed);
+      if (hit) setSelectedCouponId(hit.id);
     })();
     return () => {
       cancelled = true;
@@ -154,6 +151,7 @@ export function PurchasePanel({
   }
 
   async function buy() {
+    if (buyingRef.current || loading) return;
     if (fields.length > 0) {
       const check = validateOrderFormAnswers(orderForm, formAnswers);
       if (!check.ok) {
@@ -162,6 +160,7 @@ export function PurchasePanel({
       }
     }
 
+    buyingRef.current = true;
     setLoading(true);
     setMessage("");
     let referralCode: string | undefined;
@@ -171,34 +170,51 @@ export function PurchasePanel({
     } catch {
       /* ignore */
     }
-    const res = await fetch("/api/orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        courseId,
-        // 点选优先传 couponId；手动输入传 couponCode
-        couponId: selectedCouponId || undefined,
-        couponCode: !selectedCouponId && couponCode ? couponCode : undefined,
-        formAnswers: fields.length > 0 ? formAnswers : undefined,
-        referralCode,
-      }),
-    });
-    const data = await res.json();
-    setLoading(false);
+    try {
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseId,
+          couponId: selectedCouponId || undefined,
+          couponCode: !selectedCouponId && couponCode ? couponCode : undefined,
+          formAnswers: fields.length > 0 ? formAnswers : undefined,
+          referralCode,
+        }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      const data = await res.json().catch(() => ({}));
 
-    if (!res.ok) {
-      setMessage(data.error || "下单失败");
-      if (res.status === 401) router.push("/login");
-      return;
+      if (!res.ok) {
+        setMessage(
+          typeof data.error === "string" && data.error.trim()
+            ? data.error
+            : "下单失败，请稍后重试",
+        );
+        if (res.status === 401) router.push("/login");
+        return;
+      }
+
+      if (data.enrolled) {
+        router.push(goLearn);
+        router.refresh();
+        return;
+      }
+
+      router.push(`/checkout/${data.orderId}`);
+    } catch (error) {
+      const timedOut =
+        error instanceof DOMException &&
+        (error.name === "TimeoutError" || error.name === "AbortError");
+      setMessage(
+        timedOut
+          ? "下单超时，请刷新后查看订单是否已生成"
+          : "网络异常，请稍后重试",
+      );
+    } finally {
+      buyingRef.current = false;
+      setLoading(false);
     }
-
-    if (data.enrolled) {
-      router.push(goLearn);
-      router.refresh();
-      return;
-    }
-
-    router.push(`/checkout/${data.orderId}`);
   }
 
   if (enrolled) {
@@ -333,6 +349,29 @@ export function PurchasePanel({
                     </button>
                   );
                 })}
+              </div>
+            </div>
+          ) : null}
+          {unavailable.length > 0 ? (
+            <div className="space-y-2">
+              <div className="text-sm text-[var(--muted)]">暂不可用的优惠券</div>
+              <div className="flex flex-col gap-2">
+                {unavailable.map((c) => (
+                  <div
+                    key={c.id}
+                    className="rounded-2xl border border-dashed border-[var(--line)] bg-white/40 px-3 py-3 text-left text-sm"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-[var(--muted)]">
+                        {c.title}
+                      </span>
+                      <span className="text-[var(--muted)]">{c.benefit}</span>
+                    </div>
+                    <div className="mt-0.5 text-xs text-red-700">
+                      {c.reason || "当前不可用"}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           ) : null}

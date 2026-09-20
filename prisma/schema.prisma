@@ -770,11 +770,13 @@ model CouponRedemption {
   id        String   @id @default(cuid())
   couponId  String
   userId    String
+  /// 占用/核销对应的订单；取消待支付订单时按此释放
+  orderId   String?  @unique
   coupon    Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 
-  @@unique([couponId, userId])
+  @@index([couponId, userId])
 }
 
 /// 个人IP从 B站 / 抖音 / 小红书 / 视频号同步来的投稿（展示在「个人介绍」）

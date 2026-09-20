@@ -10,8 +10,12 @@
  * 改需求时：加「发短信 / 发邮件」等副作用，优先放在本函数事务成功之后。
  */
 
-import { grantProductAccess } from "@andyyyds/courses/lib/course-bundle";
+import {
+  grantProductAccess,
+  notifyCourseAccessGroups,
+} from "@andyyyds/courses/lib/course-bundle";
 import { grantMathcodePaidOrder } from "@andyyyds/mathcode/lib/mathcode-billing";
+import { fulfillCouponOnPaidOrder } from "./coupon-reservation";
 import { prisma } from "./db";
 import { settlePaidOrderSplit } from "./platform-settlement";
 
@@ -45,15 +49,19 @@ export async function fulfillPaidOrder(input: FulfillInput) {
     return existing;
   }
 
-  return prisma.$transaction(async (tx) => {
+  const paidOrder = await prisma.$transaction(async (tx) => {
     // 事务内再读一次，防止并发回调双写
     const current = await tx.order.findUnique({ where: { id: input.orderId } });
     if (!current) throw new Error("ORDER_NOT_FOUND");
     if (current.status === "PAID") {
-      await grantProductAccess(tx, {
-        userId: current.userId,
-        productId: current.courseId,
-      });
+      await grantProductAccess(
+        tx,
+        {
+          userId: current.userId,
+          productId: current.courseId,
+        },
+        { skipChat: true },
+      );
       const paidAgain = await tx.order.findUniqueOrThrow({
         where: { id: input.orderId },
         include: { course: true },
@@ -75,29 +83,18 @@ export async function fulfillPaidOrder(input: FulfillInput) {
       include: { course: true },
     });
 
-    // 优惠券：用量 +1，并记一条核销记录
-    if (paid.couponId) {
-      await tx.coupon.update({
-        where: { id: paid.couponId },
-        data: { usedCount: { increment: 1 } },
-      });
-      const redeemed = await tx.couponRedemption.findUnique({
-        where: {
-          couponId_userId: { couponId: paid.couponId, userId: paid.userId },
-        },
-      });
-      if (!redeemed) {
-        await tx.couponRedemption.create({
-          data: { couponId: paid.couponId, userId: paid.userId },
-        });
-      }
-    }
+    // 新单下单时已占用优惠券；历史待支付单在此补核销
+    await fulfillCouponOnPaidOrder(tx, paid);
 
-    // 开通本商品 + 专栏所含单课
-    await grantProductAccess(tx, {
-      userId: paid.userId,
-      productId: paid.courseId,
-    });
+    // 开通本商品 + 专栏所含单课。班级群必须在事务外，避免 SQLite 锁超时。
+    await grantProductAccess(
+      tx,
+      {
+        userId: paid.userId,
+        productId: paid.courseId,
+      },
+      { skipChat: true },
+    );
     // 识图会员 / 按页：写入 150 页或 guestPages（同一订单只发一次）
     await grantMathcodePaidOrder(tx, paid);
 
@@ -122,5 +119,11 @@ export async function fulfillPaidOrder(input: FulfillInput) {
       where: { id: paid.id },
       include: { course: true },
     });
+  }, { timeout: 15000 });
+
+  await notifyCourseAccessGroups({
+    userId: paidOrder.userId,
+    productId: paidOrder.courseId,
   });
+  return paidOrder;
 }
