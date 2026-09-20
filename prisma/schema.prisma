@@ -51,6 +51,9 @@ model User {
   enrollments          Enrollment[]
   orders               Order[]
   coupons              CouponRedemption[]
+  claimedCouponInstances  CouponInstance[] @relation("CouponClaimedBy")
+  redeemedCouponInstances CouponInstance[] @relation("CouponRedeemedBy")
+  couponAuditLogs      CouponAuditLog[]
   mediaCategories      MediaCategory[]
   mediaAssets          MediaAsset[]
   commissionsEarned    Commission[]       @relation("CommissionBeneficiary")
@@ -591,6 +594,7 @@ model Course {
   bundledIn     CourseBundleItem[] @relation("BundledInColumns")
   /// 指定适用本商品的优惠券（productScope=SELECTED）
   couponProducts CouponProduct[]
+  couponCampaignProducts CouponCampaignProduct[]
   /// 约搭活动挂的可售壳商品（至多一条）
   meetupProduct Meetup? @relation("MeetupProduct")
   createdAt     DateTime     @default(now())
@@ -777,6 +781,105 @@ model CouponRedemption {
   createdAt DateTime @default(now())
 
   @@index([couponId, userId])
+}
+
+/// 优惠券活动/批次：同一批独立券的公共规则。
+model CouponCampaign {
+  id          String @id @default(cuid())
+  /// 管理员识别用批次码（非领取 token）
+  code        String @unique
+  name        String
+  description String @default("")
+  /// PERCENT | FIXED
+  type        String @default("FIXED")
+  discountCents Int @default(0)
+  percentOff    Int @default(0)
+  /// 计划发行数量
+  issueCount    Int
+  /// 已生成实例序号（递增，不回退）
+  serialSeq     Int @default(0)
+  maxPerUser    Int @default(1)
+  minAmount     Int @default(0)
+  /// ALL | SELECTED
+  productScope  String @default("ALL")
+  claimStartsAt DateTime?
+  claimEndsAt   DateTime?
+  /// 使用有效期
+  startsAt      DateTime?
+  expiresAt     DateTime?
+  isActive      Boolean @default(true)
+  deletedAt     DateTime?
+  createdById   String @default("")
+  /// 从旧 Coupon 迁移时回填，保证幂等
+  legacyCouponId String? @unique
+  products    CouponCampaignProduct[]
+  instances   CouponInstance[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([createdById, deletedAt])
+  @@index([isActive, deletedAt])
+}
+
+model CouponCampaignProduct {
+  id         String @id @default(cuid())
+  campaignId String
+  courseId   String
+  campaign   CouponCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  course     Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, courseId])
+  @@index([courseId])
+}
+
+/// 独立优惠券实例：一张券一个不可猜测的领取 token。
+model CouponInstance {
+  id               String    @id @default(cuid())
+  campaignId       String
+  serialNo         String    @unique
+  tokenHash        String    @unique
+  tokenEncrypted   String
+  tokenHint        String
+  /// AVAILABLE | CLAIMED | RESERVED | REDEEMED | EXPIRED | DISABLED
+  status           String    @default("AVAILABLE")
+  claimedByUserId  String?
+  claimedAt        DateTime?
+  redeemedByUserId String?
+  redeemedAt       DateTime?
+  redeemedOrderId  String?   @unique
+  reservedOrderId  String?   @unique
+  reservedAt       DateTime?
+  disabledAt       DateTime?
+  version          Int       @default(0)
+  legacyCouponId   String?
+  legacyRedemptionId String? @unique
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  campaign   CouponCampaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  claimedBy  User?          @relation("CouponClaimedBy", fields: [claimedByUserId], references: [id])
+  redeemedBy User?          @relation("CouponRedeemedBy", fields: [redeemedByUserId], references: [id])
+  orders     Order[]        @relation("OrderCouponInstance")
+
+  @@index([campaignId, status])
+  @@index([claimedByUserId])
+  @@index([redeemedOrderId])
+  @@index([reservedOrderId])
+  @@index([legacyCouponId])
+}
+
+model CouponAuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  action     String
+  campaignId String?
+  instanceId String?
+  detail     String   @default("")
+  createdAt  DateTime @default(now())
+  actor      User     @relation(fields: [actorId], references: [id])
+
+  @@index([campaignId, createdAt])
+  @@index([actorId, createdAt])
 }
 
 /// 个人IP从 B站 / 抖音 / 小红书 / 视频号同步来的投稿（展示在「个人介绍」）
@@ -979,6 +1082,8 @@ model Order {
   providerTradeNo String       @default("")
   codeUrl         String       @default("")
   couponId        String?
+  /// 新模型：本单占用/核销的独立券实例
+  couponInstanceId String?
   referralCode    String?
   /// 用户填写的下单信息采集答案（JSON）
   formAnswersJson String       @default("")
@@ -1004,9 +1109,12 @@ model Order {
   user            User         @relation(fields: [userId], references: [id])
   course          Course       @relation(fields: [courseId], references: [id])
   coupon          Coupon?      @relation(fields: [couponId], references: [id])
+  couponInstance  CouponInstance? @relation("OrderCouponInstance", fields: [couponInstanceId], references: [id])
   commissions     Commission[]
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
+
+  @@index([couponInstanceId])
 }
 
 /// 论坛分区。表名沿用 ForumUniversity，避免改帖子/专区外键。

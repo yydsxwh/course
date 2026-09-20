@@ -13,6 +13,7 @@ import { getOrderFormConfig } from "@andyyyds/shared/site-settings";
 
 const schema = z.object({
   courseId: z.string().min(1),
+  couponInstanceId: z.string().optional(),
   couponCode: z.string().optional(),
   couponId: z.string().optional(),
   formAnswers: z.record(z.string(), z.string()).optional(),
@@ -37,8 +38,7 @@ export async function POST(req: Request) {
       {
         userId: session.id,
         courseId: body.courseId,
-        couponCode: body.couponCode,
-        couponId: body.couponId,
+        couponInstanceId: body.couponInstanceId,
         formAnswers: body.formAnswers,
         quantity: body.quantity,
         specSelected: body.specSelected,

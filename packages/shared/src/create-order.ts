@@ -8,17 +8,17 @@ import {
   grantProductAccess,
   notifyCourseAccessGroups,
 } from "@andyyyds/courses/lib/course-bundle";
-import {
-  calcCouponDiscount,
-  normalizeCouponCode,
-} from "./coupons";
+import { calcCouponDiscount } from "./coupons";
 import {
   cancelPendingOrder,
   expireStalePendingOrders,
-  loadCouponForOrder,
-  reserveCouponInTx,
-  type CouponForOrder,
 } from "./coupon-reservation";
+import {
+  campaignToDiscountInput,
+  loadCampaignRule,
+  redeemInstanceForOrder,
+  reserveInstanceInTx,
+} from "./coupon-instance";
 import { fromMeetupPeopleDb, MEETUP_PRODUCT_TYPE } from "@andyyyds/meetup/lib/meetup";
 import { sumMeetupPartySize } from "@andyyyds/meetup/lib/meetup-service-contact";
 import {
@@ -39,6 +39,7 @@ export type CreateProductOrderInput = {
   /** 当前登录用户稳定 ID，禁止用前端传来的 userId 覆盖 */
   userId: string;
   courseId: string;
+  couponInstanceId?: string;
   couponCode?: string;
   couponId?: string;
   formAnswers?: OrderFormAnswers;
@@ -195,25 +196,45 @@ export async function createProductOrder(
   const formAnswersJson = stringifyStoredAnswers(answersCheck.stored);
 
   const linePrice = course.isFree ? 0 : course.price * quantity;
-  const wantsCoupon = Boolean(
-    input.couponCode?.trim() || input.couponId?.trim(),
-  );
+  if (input.couponCode?.trim() || input.couponId?.trim()) {
+    throw new OrderBusinessError("公共券码已停用，请使用已领取的独立优惠券");
+  }
+  const instanceId = input.couponInstanceId?.trim() || "";
 
-  let coupon: CouponForOrder | null = null;
-  if (wantsCoupon && linePrice > 0) {
-    coupon = await loadCouponForOrder(db, {
-      couponId: input.couponId?.trim() || undefined,
-      couponCode: input.couponCode
-        ? normalizeCouponCode(input.couponCode)
-        : undefined,
+  let instanceCampaignId: string | null = null;
+  let legacyCouponId: string | undefined;
+  if (instanceId && linePrice > 0) {
+    const instance = await db.couponInstance.findUnique({
+      where: { id: instanceId },
+      select: {
+        id: true,
+        campaignId: true,
+        claimedByUserId: true,
+        status: true,
+        campaign: { select: { legacyCouponId: true } },
+      },
     });
-    if (!coupon) {
-      throw new OrderBusinessError("优惠券不存在");
+    if (!instance) throw new OrderBusinessError("优惠券不存在");
+    if (instance.claimedByUserId !== user.id) {
+      throw new OrderBusinessError("不能使用他人的优惠券");
+    }
+    const campaign = await loadCampaignRule(db, instance.campaignId);
+    if (!campaign) throw new OrderBusinessError("优惠券不存在");
+    instanceCampaignId = campaign.id;
+    legacyCouponId = instance.campaign.legacyCouponId || undefined;
+    const preview = calcCouponDiscount(linePrice, campaignToDiscountInput(campaign));
+    if (preview < 0) {
+      throw new OrderBusinessError("优惠券不可用");
     }
   }
 
-  const discount =
-    coupon && linePrice > 0 ? calcCouponDiscount(linePrice, coupon) : 0;
+  let discount = 0;
+  if (instanceCampaignId && linePrice > 0) {
+    const campaign = await loadCampaignRule(db, instanceCampaignId);
+    discount = campaign
+      ? calcCouponDiscount(linePrice, campaignToDiscountInput(campaign))
+      : 0;
+  }
   const amount = Math.max(linePrice - discount, 0);
 
   const fromBody = (input.referralCode || "").trim().slice(0, 32);
@@ -281,19 +302,20 @@ export async function createProductOrder(
           specLabel,
           amount,
           discount,
-          couponId: coupon?.id,
+          couponId: legacyCouponId,
+          couponInstanceId: instanceId || undefined,
           formAnswersJson,
           referralCode,
           status: amount === 0 ? "PAID" : "PENDING",
           paidAt: amount === 0 ? new Date() : undefined,
           payChannel:
-            amount === 0 ? (coupon ? "COUPON" : "FREE") : undefined,
+            amount === 0 ? (instanceId ? "COUPON" : "FREE") : undefined,
         },
       });
 
-      if (coupon) {
-        await reserveCouponInTx(tx, {
-          coupon,
+      if (instanceId) {
+        await reserveInstanceInTx(tx, {
+          instanceId,
           userId: user.id,
           orderId: order.id,
           priceCents: linePrice,
@@ -303,6 +325,13 @@ export async function createProductOrder(
       }
 
       if (amount === 0) {
+        if (instanceId) {
+          await redeemInstanceForOrder(tx, {
+            orderId: order.id,
+            userId: user.id,
+            now: input.now,
+          });
+        }
         await grantProductAccess(
           tx,
           { userId: user.id, productId: course.id },

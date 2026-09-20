@@ -17,6 +17,7 @@
     "test": "tsx --test packages/shared/src/*.test.ts packages/mathcode/lib/*.test.ts packages/docs/lib/*.test.ts packages/person/lib/*.test.ts",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "db:migrate-coupons": "tsx scripts/migrate-coupon-campaigns.ts",
     "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
     "postinstall": "prisma generate"
   },

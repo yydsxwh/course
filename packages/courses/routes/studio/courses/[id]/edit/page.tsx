@@ -100,8 +100,11 @@ export default async function EditCoursePage({
       },
     }),
     showCoupons
-      ? prisma.coupon.findMany({
-          where: seeAll ? undefined : { createdById: session.id },
+      ? prisma.couponCampaign.findMany({
+          where: {
+            deletedAt: null,
+            ...(seeAll ? {} : { createdById: session.id }),
+          },
           include: {
             products: {
               include: {
@@ -115,6 +118,7 @@ export default async function EditCoursePage({
                 },
               },
             },
+            _count: { select: { instances: true } },
           },
           orderBy: { createdAt: "desc" },
           take: 200,
@@ -149,13 +153,16 @@ export default async function EditCoursePage({
     return {
       id: c.id,
       code: c.code,
-      title: c.title,
+      title: c.name,
+      name: c.name,
       type: c.type,
       discountCents: c.discountCents,
       percentOff: c.percentOff,
       minAmount: c.minAmount,
-      maxUses: c.maxUses,
-      usedCount: c.usedCount,
+      issueCount: c.issueCount,
+      generatedCount: c._count.instances,
+      maxUses: c.issueCount,
+      usedCount: 0,
       maxPerUser: c.maxPerUser,
       startsAt: c.startsAt?.toISOString() ?? null,
       expiresAt: c.expiresAt?.toISOString() ?? null,

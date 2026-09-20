@@ -286,6 +286,9 @@ export default async function AccountPage() {
             <Link href="/cart" className="btn btn-secondary min-h-10 px-3 text-sm">
               购物车
             </Link>
+            <Link href="/account/coupons" className="btn btn-secondary min-h-10 px-3 text-sm">
+              我的优惠券
+            </Link>
             <Link href="/orders" className="btn btn-secondary min-h-10 px-3 text-sm">
               全部订单
             </Link>

@@ -21,7 +21,6 @@ export default async function StudioCouponsPage() {
 
   const seeAll = canViewAllStudioData(session.role);
 
-  // 旧约搭补挂可售壳，便于「指定商品」勾选约搭；失败不阻断优惠券页
   try {
     const orphanMeetups = await prisma.meetup.findMany({
       where: { productCourseId: null },
@@ -36,21 +35,20 @@ export default async function StudioCouponsPage() {
   }
 
   const [rows, products] = await Promise.all([
-    prisma.coupon.findMany({
-      where: seeAll ? undefined : { createdById: session.id },
+    prisma.couponCampaign.findMany({
+      where: {
+        deletedAt: null,
+        ...(seeAll ? {} : { createdById: session.id }),
+      },
       include: {
         products: {
           include: {
             course: {
-              select: {
-                id: true,
-                title: true,
-                slug: true,
-                productType: true,
-              },
+              select: { id: true, title: true, slug: true, productType: true },
             },
           },
         },
+        _count: { select: { instances: true } },
       },
       orderBy: { createdAt: "desc" },
       take: 200,
@@ -85,13 +83,14 @@ export default async function StudioCouponsPage() {
     return {
       id: c.id,
       code: c.code,
-      title: c.title,
+      title: c.name,
+      name: c.name,
       type: c.type,
       discountCents: c.discountCents,
       percentOff: c.percentOff,
       minAmount: c.minAmount,
-      maxUses: c.maxUses,
-      usedCount: c.usedCount,
+      issueCount: c.issueCount,
+      generatedCount: c._count.instances,
       maxPerUser: c.maxPerUser,
       startsAt: c.startsAt?.toISOString() ?? null,
       expiresAt: c.expiresAt?.toISOString() ?? null,
@@ -112,8 +111,7 @@ export default async function StudioCouponsPage() {
       <div>
         <h1 className="text-3xl font-semibold">优惠券</h1>
         <p className="mt-2 text-sm text-[var(--muted)]">
-          创建比例折扣或定额减免；可设全站（含约搭）或指定商品（可勾选约搭活动）；列表可分享链接到微信或
-          QQ。学员打开链接后下单可预填券码。
+          创建一个活动会按发行数量生成独立优惠券。每张券有自己的领取链接，领取后才能下单抵扣。
         </p>
       </div>
       <MarketingSubnav current="coupons" />

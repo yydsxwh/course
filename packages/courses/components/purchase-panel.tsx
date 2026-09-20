@@ -176,8 +176,7 @@ export function PurchasePanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           courseId,
-          couponId: selectedCouponId || undefined,
-          couponCode: !selectedCouponId && couponCode ? couponCode : undefined,
+          couponInstanceId: selectedCouponId || undefined,
           formAnswers: fields.length > 0 ? formAnswers : undefined,
           referralCode,
         }),
@@ -375,16 +374,11 @@ export function PurchasePanel({
               </div>
             </div>
           ) : null}
-          <input
-            className="field"
-            placeholder="或输入优惠券码，如 YYDS20"
-            value={couponCode}
-            onChange={(e) => {
-              setCouponCode(e.target.value);
-              // 手动改码时取消点选，避免 id/code 不一致
-              setSelectedCouponId("");
-            }}
-          />
+          {available.length === 0 && unavailable.length === 0 ? (
+            <p className="text-xs text-[var(--muted)]">
+              没有已领取的优惠券。请打开管理员发给你的独立领取链接。
+            </p>
+          ) : null}
         </div>
       ) : null}
       <button

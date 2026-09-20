@@ -521,8 +521,7 @@ export function MeetupDetailView({
         body: JSON.stringify({
           courseId: meetup.productCourseId,
           quantity: partySize,
-          couponId: selectedCouponId || undefined,
-          couponCode: !selectedCouponId && couponCode ? couponCode : undefined,
+          couponInstanceId: selectedCouponId || undefined,
           formAnswers: fields.length > 0 ? formAnswers : undefined,
           referralCode,
           // 用规格快照携带分档，支付履约后写入 MeetupJoin.slotId
@@ -1339,16 +1338,10 @@ export function MeetupDetailView({
                 })}
               </div>
             ) : null}
-            {paid ? (
-              <input
-                className="field mt-3 min-h-11"
-                placeholder="或输入优惠券码"
-                value={couponCode}
-                onChange={(e) => {
-                  setCouponCode(e.target.value);
-                  setSelectedCouponId("");
-                }}
-              />
+            {paid && available.length === 0 ? (
+              <p className="mt-3 text-xs text-[var(--muted)]">
+                没有已领取的优惠券。请先打开独立领取链接。
+              </p>
             ) : null}
 
             {message ? (

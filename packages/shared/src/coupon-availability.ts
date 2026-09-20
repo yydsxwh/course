@@ -1,18 +1,19 @@
 /**
- * 购买页优惠券列表：可用券 + 不可用原因（仅当前商品相关券）。
+ * 购买页：只列出当前用户已领取、可用于该商品的独立券。
  */
 
 import type { PrismaClient } from "@prisma/client";
+import { calcCouponDiscount, formatCouponBenefit } from "./coupons";
 import {
-  calcCouponDiscount,
-  couponAppliesToProduct,
-  formatCouponBenefit,
-  validateCouponForOrder,
-} from "./coupons";
-import { toCouponForOrder } from "./coupon-reservation";
+  campaignToDiscountInput,
+  effectiveInstanceStatus,
+  isCampaignUsable,
+  loadCampaignRule,
+} from "./coupon-instance";
 
 export type BuyerCouponView = {
   id: string;
+  instanceId: string;
   code: string;
   title: string;
   type: string;
@@ -38,60 +39,53 @@ export async function listCouponsForBuyer(
   }
 
   const now = input.now || new Date();
-  const rows = await db.coupon.findMany({
+  const rows = await db.couponInstance.findMany({
     where: {
-      OR: [{ productScope: "ALL" }, { products: { some: { courseId: course.id } } }],
+      claimedByUserId: input.userId,
+      status: { in: ["CLAIMED", "RESERVED", "REDEEMED"] },
+      campaign: {
+        deletedAt: null,
+        OR: [
+          { productScope: "ALL" },
+          { products: { some: { courseId: course.id } } },
+        ],
+      },
     },
-    include: { products: { select: { courseId: true } } },
-    orderBy: { createdAt: "desc" },
+    include: {
+      campaign: { include: { products: { select: { courseId: true } } } },
+    },
+    orderBy: { claimedAt: "desc" },
     take: 80,
   });
-
-  const redeemed = await db.couponRedemption.findMany({
-    where: {
-      userId: input.userId,
-      couponId: { in: rows.map((c) => c.id) },
-    },
-    select: { couponId: true },
-  });
-  const redeemedSet = new Set(redeemed.map((r) => r.couponId));
-
-  const pendingHolds = await db.order.findMany({
-    where: {
-      userId: input.userId,
-      status: "PENDING",
-      couponId: { in: rows.map((c) => c.id) },
-    },
-    select: { couponId: true },
-  });
-  const pendingSet = new Set(
-    pendingHolds.map((o) => o.couponId).filter(Boolean) as string[],
-  );
 
   const available: BuyerCouponView[] = [];
   const unavailable: BuyerCouponView[] = [];
 
   for (const row of rows) {
-    const coupon = toCouponForOrder(row);
-    if (!couponAppliesToProduct(coupon, course.id)) continue;
-    const discount = calcCouponDiscount(course.price, coupon);
+    const campaign = await loadCampaignRule(db, row.campaignId);
+    if (!campaign) continue;
+    const discount = calcCouponDiscount(
+      course.price,
+      campaignToDiscountInput(campaign),
+    );
     const base: BuyerCouponView = {
-      id: coupon.id,
-      code: row.code,
-      title: row.title,
-      type: coupon.type,
-      benefit: formatCouponBenefit(coupon),
+      id: row.id,
+      instanceId: row.id,
+      code: row.serialNo,
+      title: campaign.name,
+      type: campaign.type,
+      benefit: formatCouponBenefit(campaign),
       discountCents: discount,
-      minAmount: coupon.minAmount,
-      expiresAt: coupon.expiresAt?.toISOString() ?? null,
+      minAmount: campaign.minAmount,
+      expiresAt: campaign.expiresAt?.toISOString() ?? null,
       available: true,
     };
-
-    if (redeemedSet.has(coupon.id)) {
+    const effective = effectiveInstanceStatus(row.status, campaign, now);
+    if (effective === "REDEEMED") {
       unavailable.push({ ...base, available: false, reason: "你已使用过这张优惠券" });
       continue;
     }
-    if (pendingSet.has(coupon.id)) {
+    if (effective === "RESERVED" && row.reservedOrderId) {
       unavailable.push({
         ...base,
         available: false,
@@ -99,7 +93,11 @@ export async function listCouponsForBuyer(
       });
       continue;
     }
-    const reason = validateCouponForOrder(coupon, course.price, now, course.id);
+    if (effective === "EXPIRED") {
+      unavailable.push({ ...base, available: false, reason: "优惠券已过期" });
+      continue;
+    }
+    const reason = isCampaignUsable(campaign, now, course.id);
     if (reason) {
       unavailable.push({ ...base, available: false, reason });
       continue;
@@ -109,4 +107,53 @@ export async function listCouponsForBuyer(
 
   available.sort((a, b) => b.discountCents - a.discountCents);
   return { coupons: available, unavailable, coursePrice: course.price };
+}
+
+export async function listMyCouponInstances(
+  db: PrismaClient,
+  userId: string,
+  now = new Date(),
+) {
+  const rows = await db.couponInstance.findMany({
+    where: { claimedByUserId: userId },
+    include: {
+      campaign: {
+        include: {
+          products: {
+            include: {
+              course: {
+                select: { id: true, title: true, slug: true, productType: true, status: true },
+              },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { claimedAt: "desc" },
+    take: 100,
+  });
+  return rows.map((row) => {
+    const campaign = row.campaign;
+    const status = effectiveInstanceStatus(row.status, campaign, now);
+    return {
+      instanceId: row.id,
+      serialNo: row.serialNo,
+      status,
+      claimedAt: row.claimedAt?.toISOString() ?? null,
+      redeemedAt: row.redeemedAt?.toISOString() ?? null,
+      campaign: {
+        id: campaign.id,
+        name: campaign.name,
+        type: campaign.type,
+        discountCents: campaign.discountCents,
+        percentOff: campaign.percentOff,
+        minAmount: campaign.minAmount,
+        productScope: campaign.productScope,
+        expiresAt: campaign.expiresAt?.toISOString() ?? null,
+        products: campaign.products
+          .map((p) => p.course)
+          .filter((c) => c && c.status === "PUBLISHED"),
+      },
+    };
+  });
 }
