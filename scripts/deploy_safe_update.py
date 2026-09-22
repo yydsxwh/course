@@ -73,6 +73,9 @@ def should_exclude(path: Path) -> bool:
         ".zip",
     }:
         return True
+    # 主题图和封面已在生产机上，每次整包上传会拖垮发布；rsync 同样排除，避免 --delete 删掉。
+    if rel.startswith("public/themes/") or rel.startswith("public/covers/"):
+        return True
     return False
 
 
@@ -327,6 +330,8 @@ def main() -> int:
         f"--exclude '*.db' "
         f"--exclude '*.db-journal' "
         f"--exclude 'public/products/' "
+        f"--exclude 'public/themes/' "
+        f"--exclude 'public/covers/' "
         f"--exclude 'capacitor.config.ts' "
         f"--exclude 'docs/' "
         f"--exclude '.github/' "
