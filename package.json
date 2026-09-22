@@ -20,7 +20,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:migrate-coupons": "tsx scripts/migrate-coupon-campaigns.ts",
     "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
-    "postinstall": "prisma generate",
+    "postinstall": "prisma generate && node scripts/patch-opencc-types.mjs",
     "app:sync": "npx cap sync android",
     "app:open": "npx cap open android",
     "app:build": "npx cap sync android && node scripts/build-android-apk.mjs",

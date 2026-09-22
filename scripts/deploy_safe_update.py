@@ -182,7 +182,7 @@ def run(client: paramiko.SSHClient, cmd: str, timeout: int = 1200) -> str:
         print(err[-4000:], flush=True)
     if code != 0:
         raise RuntimeError(f"fail {code}: {cmd}\n{err[-2000:]}\n{out[-2000:]}")
-    return out
+    return out + (("\n" + err) if err else "")
 
 
 def upload_tarball(client: paramiko.SSHClient, tarball: Path) -> paramiko.SSHClient:
@@ -472,7 +472,14 @@ def main() -> int:
         "if [ -n \"$pids\" ]; then kill $pids || true; fi; "
         f"sleep 1; rm -rf {REMOTE_DIR}/.next",
     )
-    run(client, f"cd {REMOTE_DIR} && npm run build", timeout=1200)
+    # 生产机内存小，优先走带 cgroup 上限的构建脚本，避免构建把正在服务的进程挤掉。
+    run(
+        client,
+        f"cd {REMOTE_DIR} && "
+        "if [ -x scripts/ops/yyds-build.sh ]; then bash scripts/ops/yyds-build.sh; "
+        "else npm run build; fi",
+        timeout=1200,
+    )
     # 用 if/else，避免 || 与 && 连用导致 restart 成功后又多起一个进程
     run(
         client,
