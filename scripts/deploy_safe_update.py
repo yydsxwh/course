@@ -373,13 +373,28 @@ def main() -> int:
         f"--to-schema-datamodel prisma/schema.prisma --script",
         timeout=180,
     )
+    # SQLite 加外键时会整表重建：先 INSERT 进 new_* 再 DROP。那是拷贝，不是丢数据。
+    # 真正的删列会在 diff 里写 “will be lost” / DROP COLUMN，这里才中止。
+    import re
+
+    lowered = diff_sql.lower()
+    if "will be lost" in lowered or "drop the column" in lowered:
+        raise RuntimeError("schema diff would drop production columns:\n" + diff_sql[-2000:])
     destructive = [
         line.strip()
         for line in diff_sql.splitlines()
-        if line.strip().upper().startswith("DROP ")
-        or " DROP COLUMN" in line.upper()
+        if " DROP COLUMN" in line.upper()
+        or line.strip().upper().startswith("DROP COLUMN")
         or ("ALTER TABLE" in line.upper() and " DROP " in line.upper())
     ]
+    for table in re.findall(r'DROP TABLE "([^"]+)"', diff_sql):
+        copied = (
+            f'CREATE TABLE "new_{table}"' in diff_sql
+            and f'INSERT INTO "new_{table}"' in diff_sql
+            and f'FROM "{table}"' in diff_sql
+        )
+        if not copied:
+            destructive.append(f'DROP TABLE "{table}"')
     if destructive:
         raise RuntimeError(
             "schema diff would drop production data:\n" + "\n".join(destructive[:40])
@@ -424,6 +439,27 @@ def main() -> int:
         "print(f'DB_OK users={n_user} orders={n_order} coupons={n_coupon} campaigns={n_camp} instances={n_inst} available={n_avail}')\n"
         "if n_user < 1 or n_coupon < 1 or n_camp < 1 or n_inst != 1400 or n_avail != 1400:\n"
         "    raise SystemExit('production coupon instances are not the original 1400; abort')\n"
+        "import glob, os\n"
+        f"backups = sorted(glob.glob('{REMOTE_DIR}/.deploy_backup/prod.db.*'), key=os.path.getmtime)\n"
+        "pre = None\n"
+        "for path in reversed(backups):\n"
+        "    bak = sqlite3.connect(path)\n"
+        "    names = {r[0] for r in bak.execute(\"SELECT name FROM sqlite_master WHERE type='table'\")}\n"
+        "    if 'CouponInstance' not in names and 'Order' in names:\n"
+        "        pre = bak\n"
+        "        print('COMPARE_BACKUP', os.path.basename(path))\n"
+        "        break\n"
+        "    bak.close()\n"
+        "if pre is None:\n"
+        "    raise SystemExit('no pre-push backup to compare orders against')\n"
+        "pre_users = pre.execute('SELECT count(*) FROM User').fetchone()[0]\n"
+        "pre_orders = pre.execute('SELECT count(*) FROM \"Order\"').fetchone()[0]\n"
+        "pre_nos = {r[0] for r in pre.execute('SELECT orderNo FROM \"Order\"')}\n"
+        "live_nos = {r[0] for r in cur.execute('SELECT orderNo FROM \"Order\"')}\n"
+        "missing_orders = sorted(pre_nos - live_nos)\n"
+        "pre.close()\n"
+        "if n_user < pre_users or n_order < pre_orders or missing_orders:\n"
+        "    raise SystemExit('users or orders were lost; missing=' + ','.join(missing_orders[:10]))\n"
         "con.close()\n"
         "PY",
     )
