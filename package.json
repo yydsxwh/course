@@ -1,8 +1,8 @@
 {
-  "name": "course",
+  "name": "andyyyds",
   "version": "0.1.0",
   "private": true,
-  "description": "网课资料：课程/资料广场、学习播放、创作者中心与素材库",
+  "description": "Andyyyds 产品工作区：站点壳 + 公共包 + 按产品拆分的源码包",
   "workspaces": [
     "packages/*"
   ],
@@ -14,12 +14,17 @@
     "start:next": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test packages/shared/src/*.test.ts packages/mathcode/lib/*.test.ts packages/docs/lib/*.test.ts packages/person/lib/*.test.ts",
+    "test": "tsx packages/shared/src/auth-session-cookie.test.ts && tsx packages/shared/src/safe-next-path.test.ts && tsx packages/shared/src/account-oidc.test.ts && tsx packages/shared/src/portal.test.ts && tsx packages/shared/src/wechat-pay-trade.test.ts && tsx packages/shared/src/home-logo.test.ts && tsx packages/mathcode/lib/mathcode-quota.test.ts && tsx packages/mathcode/lib/mathcode-pdf.test.ts && tsx packages/mathcode/lib/mathcode-spacing.test.ts && tsx packages/person/lib/person-site.test.ts && tsx packages/docs/lib/docs-save.test.ts && tsx packages/docs/lib/docs-page.test.ts && tsx packages/docs/lib/docs-scheme.test.ts",
+    "test:auth": "tsx packages/shared/src/auth-session-cookie.test.ts && tsx scripts/auth-regression.test.ts",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "db:migrate-coupons": "tsx scripts/migrate-coupon-campaigns.ts",
     "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "app:sync": "npx cap sync android",
+    "app:open": "npx cap open android",
+    "app:build": "npx cap sync android && node scripts/build-android-apk.mjs",
+    "app:build:windows": "node scripts/build-windows-client.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -29,12 +34,15 @@
     "@andyyyds/company": "*",
     "@andyyyds/courses": "*",
     "@andyyyds/docs": "*",
+    "@andyyyds/decorate": "*",
     "@andyyyds/forum": "*",
     "@andyyyds/mathcode": "*",
     "@andyyyds/meetup": "*",
     "@andyyyds/person": "*",
     "@andyyyds/shared": "*",
-    "@capacitor/core": "^8.5.1",
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
     "@prisma/client": "^5.22.0",
     "@tailwindcss/postcss": "^4",
     "@tiptap/core": "^2.27.3",
@@ -47,6 +55,7 @@
     "@tiptap/pm": "^2.27.3",
     "@tiptap/react": "^2.27.3",
     "@tiptap/starter-kit": "^2.27.3",
+    "@yydsxwh/shared": "git+https://github.com/yydsxwh/shared.git#v0.1.0",
     "bcryptjs": "^3.0.3",
     "date-fns": "^4.4.0",
     "docx": "^9.7.1",

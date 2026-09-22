@@ -248,10 +248,6 @@ async function main() {
       expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 90),
     },
   });
-  const { migrateLegacyCoupons } = await import(
-    "../packages/shared/src/coupon-campaign-migrate"
-  );
-  await migrateLegacyCoupons(prisma);
 
   await prisma.enrollment.create({
     data: {

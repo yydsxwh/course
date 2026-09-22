@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties } from "react";
 import Link from "next/link";
 import { BgMusicPlayer } from "@/components/bg-music-player";
 import { CouponCapture } from "@/components/coupon-capture";
@@ -26,7 +26,11 @@ import {
   typoRoleClass,
   typoRoleStyle,
 } from "@andyyyds/shared/site-typography";
+import "@andyyyds/decorate/styles/decorate.css";
 import "./globals.css";
+
+// 顶栏读 Session Cookie。不强制动态时，登出 303 回首页可能仍吃到已登录的缓存 HTML。
+export const dynamic = "force-dynamic";
 
 // 不用 next/font/google：香港机器构建时常拉不到 fonts.googleapis.com 导致整站发版失败。
 // 站长选中的中文字体在运行时按需 CDN 注入（见 SiteFontLinks）。
@@ -54,7 +58,8 @@ export async function generateMetadata(): Promise<Metadata> {
       template: `%s · ${siteName}`,
     },
     applicationName: siteName,
-    description: "网课资料：课程与资料广场、在线学习、创作者中心与素材库",
+    description:
+      "多功能门户：公司与个人介绍、知识付费、商城、大学论坛；游戏中心陆续开放",
     icons: {
       icon: [
         { url: "/favicon.ico", sizes: "any" },
@@ -67,11 +72,7 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default async function RootLayout({
-  children,
-}: {
-  children: ReactNode;
-}) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
   const [decorate, localeCtx] = await Promise.all([
     getDecorateConfig(),
     getRequestLocaleContext(),

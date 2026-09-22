@@ -107,18 +107,19 @@ export async function ClientDownloadsPanel() {
   );
 }
 
-/** 联系我们 + 客户端下载：大屏左右并排，贴近页顶中部 */
+/** 联系我们 + 客户端下载：中屏起左右并排（客户端下载贴右侧），贴近页顶中部 */
 export function HomeContactAndDownloads({
   contactPanel,
+  downloadsPanel,
 }: {
   contactPanel: ReactNode;
+  /** 传入已包好「自由摆放外壳」的下载卡片；缺省原地渲染默认面板 */
+  downloadsPanel?: ReactNode;
 }) {
   return (
-    <div className="flex w-full max-w-6xl flex-col gap-4 px-3 sm:px-5 lg:flex-row lg:items-start lg:justify-between lg:gap-6 lg:px-8">
-      <div className="min-w-0 shrink-0 lg:max-w-sm">{contactPanel}</div>
-      <div className="min-w-0 lg:ml-auto">
-        <ClientDownloadsPanel />
-      </div>
+    <div className="flex w-full max-w-6xl flex-col gap-4 px-3 sm:px-5 md:flex-row md:items-start md:justify-between md:gap-6 md:px-8">
+      {contactPanel}
+      {downloadsPanel ?? <ClientDownloadsPanel />}
     </div>
   );
 }

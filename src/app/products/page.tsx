@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { NavPageTemplateShell } from "@/components/nav-page-template-shell";
 import { OpenVsCodeButton } from "@andyyyds/mathcode/components/open-vscode-button";
 import { MATHCODE_EDITOR_LINKS } from "@andyyyds/mathcode/lib/mathcode-open";
@@ -10,10 +9,44 @@ import {
 
 export const metadata = {
   title: "软件产品",
-  description: "颗秒会议、颗秒网盘等自研软件产品",
+  description: "瞬懂、颗秒日事、MathCode、网页文档等自研软件产品",
 };
 
+function ProductActions({ product }: { product: SoftwareProduct }) {
+  if (!product.actions?.length) return null;
+  return (
+    <div className="relative z-10 mt-4 flex flex-wrap gap-2">
+      {product.actions.map((action) => {
+        const className = action.primary
+          ? "btn btn-primary min-h-11 px-4 text-sm"
+          : "btn btn-secondary min-h-11 px-4 text-sm";
+        const isApk = /\.apk(?:$|\?)/i.test(action.href);
+        // 安卓 Chrome 用 download 属性走 blob 保存时，APK 首次常提示「下载失败」；
+        // 直接跳转交给 nginx 的 Content-Disposition 命名更稳。其余安装包保留 download。
+        const downloadProps =
+          action.download && !isApk
+            ? { download: action.href.split("/").pop() || "download" }
+            : {};
+        return (
+          <a
+            key={action.href}
+            className={className}
+            href={action.href}
+            type={isApk ? "application/vnd.android.package-archive" : undefined}
+            target="_blank"
+            rel="noopener noreferrer"
+            {...downloadProps}
+          >
+            {action.label}
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
 function ProductCard({ product }: { product: SoftwareProduct }) {
+  const hasActions = Boolean(product.actions?.length);
   const inner = (
     <>
       <div className="flex flex-wrap items-center gap-2">
@@ -30,11 +63,19 @@ function ProductCard({ product }: { product: SoftwareProduct }) {
       <p className="mt-2 text-sm leading-7 text-[var(--muted)]">
         {product.description}
       </p>
-      {product.href && product.id === "mathcode" ? (
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Link href={product.href} className="btn btn-primary min-h-11 px-4 text-sm">
+
+      {hasActions ? (
+        <ProductActions product={product} />
+      ) : product.href && product.id === "mathcode" ? (
+        <div className="relative z-10 mt-4 flex flex-wrap gap-2">
+          <a
+            href={product.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn btn-primary min-h-11 px-4 text-sm"
+          >
             进入 MathCode
-          </Link>
+          </a>
           <a
             className="btn btn-secondary min-h-11 px-4 text-sm"
             href={MATHCODE_EDITOR_LINKS.overleaf}
@@ -46,15 +87,17 @@ function ProductCard({ product }: { product: SoftwareProduct }) {
           <OpenVsCodeButton className="btn btn-secondary min-h-11 px-4 text-sm">
             打开 VS Code
           </OpenVsCodeButton>
-          <Link
+          <a
             href="/app/windows"
+            target="_blank"
+            rel="noopener noreferrer"
             className="btn btn-secondary min-h-11 px-4 text-sm"
           >
             Windows 客户端
-          </Link>
+          </a>
         </div>
       ) : product.href ? (
-        <span className="mt-4 inline-flex min-h-11 items-center text-sm font-medium text-[var(--brand)]">
+        <span className="relative z-10 mt-4 inline-flex min-h-11 items-center text-sm font-medium text-[var(--brand)]">
           了解更多 →
         </span>
       ) : (
@@ -64,25 +107,24 @@ function ProductCard({ product }: { product: SoftwareProduct }) {
   );
 
   const className =
-    "surface block rounded-[28px] p-5 transition hover:-translate-y-0.5 sm:p-6";
-
-  // MathCode 卡片上有多个入口，不能整卡包一层 Link（否则套嵌 <a>）
-  if (product.id === "mathcode") {
-    return <article className={className}>{inner}</article>;
-  }
+    "surface relative block rounded-[28px] p-5 transition hover:-translate-y-0.5 sm:p-6";
 
   if (product.href) {
-    const external = /^https?:\/\//i.test(product.href);
+    // 整张卡片都可点击，且一律在新标签打开，软件产品页本身不会被覆盖。
+    // 铺满卡片的透明链接放在底层，卡片内的按钮靠 pointer-events 单独接管点击。
     return (
-      <Link
-        href={product.href}
-        className={className}
-        {...(external
-          ? { target: "_blank", rel: "noopener noreferrer" }
-          : {})}
-      >
-        {inner}
-      </Link>
+      <article className={className}>
+        <a
+          href={product.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`在新标签页打开${product.name}`}
+          className="absolute inset-0 z-0 rounded-[28px]"
+        />
+        <div className="relative z-10 pointer-events-none [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
+          {inner}
+        </div>
+      </article>
     );
   }
 
@@ -115,8 +157,10 @@ export default function SoftwareProductsPage() {
           <p className="mt-2 max-w-2xl text-sm leading-7 text-[var(--muted)]">
             休闲与学习向游戏入口规划中，先从这里进入专区。
           </p>
-          <Link
+          <a
             href="/games"
+            target="_blank"
+            rel="noopener noreferrer"
             className="surface mt-5 block rounded-[28px] p-5 transition hover:-translate-y-0.5 sm:p-6"
           >
             <div className="flex flex-wrap items-center gap-2">
@@ -134,7 +178,7 @@ export default function SoftwareProductsPage() {
             <span className="mt-4 inline-flex min-h-11 items-center text-sm font-medium text-[var(--brand)]">
               进入游戏中心 →
             </span>
-          </Link>
+          </a>
         </section>
 
         <p className="mt-10 text-center text-xs text-[var(--muted)]">

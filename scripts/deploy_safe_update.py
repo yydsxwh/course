@@ -58,7 +58,9 @@ def should_exclude(path: Path) -> bool:
         return True
     if path.name in EXCLUDE_FILES:
         return True
-    if path.suffix in {".db", ".db-journal"}:
+    if path.suffix in {".db", ".db-journal", ".pyc"}:
+        return True
+    if "__pycache__" in parts:
         return True
     # 本地临时诊断脚本不必上线
     if parts[0] == "scripts" and path.name.startswith("_"):
@@ -324,6 +326,11 @@ def main() -> int:
         f"--exclude '.deploy_backup' "
         f"--exclude '*.db' "
         f"--exclude '*.db-journal' "
+        f"--exclude 'public/products/' "
+        f"--exclude 'capacitor.config.ts' "
+        f"--exclude 'docs/' "
+        f"--exclude '.github/' "
+        f"--exclude 'scripts/_*' "
         f"--exclude 'public/app/*.apk' "
         f"--exclude 'public/app/*.exe' "
         f"--exclude 'public/app/*.zip' "
@@ -340,10 +347,46 @@ def main() -> int:
         f"cp -a {REMOTE_DIR}/prisma/prod.db "
         f"{REMOTE_DIR}/.deploy_backup/prod.db.$(date +%Y%m%d%H%M%S)",
     )
-    # 只做增量扩表/加列。禁止 --accept-data-loss，避免把生产库多出来的列（如 sessionEpoch）删掉。
-    run(client, f"cd {REMOTE_DIR} && npx prisma db push")
-    # 旧公共券码 → 活动+独立实例（幂等，不删订单/核销历史）
-    run(client, f"cd {REMOTE_DIR} && npm run db:migrate-coupons", timeout=600)
+    # 推 schema 前看差异。出现 DROP 就停，禁止 --accept-data-loss。
+    diff_sql = run(
+        client,
+        f"cd {REMOTE_DIR} && set -a && . ./.env && set +a && "
+        f"npx --no-install prisma migrate diff "
+        f"--from-url 'file:{REMOTE_DIR}/prisma/prod.db' "
+        f"--to-schema-datamodel prisma/schema.prisma --script",
+        timeout=180,
+    )
+    destructive = [
+        line.strip()
+        for line in diff_sql.splitlines()
+        if line.strip().upper().startswith("DROP ")
+        or " DROP COLUMN" in line.upper()
+        or ("ALTER TABLE" in line.upper() and " DROP " in line.upper())
+    ]
+    if destructive:
+        raise RuntimeError(
+            "schema diff would drop production data:\n" + "\n".join(destructive[:40])
+        )
+    print("SCHEMA_DIFF_OK", flush=True)
+    # 只做增量扩表/加列。禁止 --accept-data-loss，避免删掉生产库多出来的列。
+    run(client, f"cd {REMOTE_DIR} && npx --no-install prisma db push")
+    # 若实例表是空的，从含 1400 张券的部署备份写回原实例，避免迁移脚本重铸 token。
+    run(
+        client,
+        f"cd {REMOTE_DIR} && python3 scripts/restore_coupon_instances.py",
+        timeout=120,
+    )
+    # 旧公共券码 → 活动+独立实例（幂等，不删订单/核销历史）。不改 AUTH_SECRET / 不写 COUPON_TOKEN_KEY。
+    migrate_out = run(
+        client,
+        f"cd {REMOTE_DIR} && set -a && . ./.env && set +a && npm run db:migrate-coupons",
+        timeout=600,
+    )
+    if "newCampaigns=0" not in migrate_out or "newInstances=0" not in migrate_out:
+        raise RuntimeError(
+            "coupon migration was not idempotent after restoring original instances:\n"
+            + migrate_out[-2000:]
+        )
     run(
         client,
         f"python3 - <<'PY'\n"
@@ -360,9 +403,10 @@ def main() -> int:
         "n_coupon = cur.execute('SELECT count(*) FROM Coupon').fetchone()[0]\n"
         "n_camp = cur.execute('SELECT count(*) FROM CouponCampaign').fetchone()[0]\n"
         "n_inst = cur.execute('SELECT count(*) FROM CouponInstance').fetchone()[0]\n"
-        "print(f'DB_OK users={n_user} orders={n_order} coupons={n_coupon} campaigns={n_camp} instances={n_inst}')\n"
-        "if n_user < 1 or n_coupon < 1:\n"
-        "    raise SystemExit('production data looks empty after migrate; abort')\n"
+        "n_avail = cur.execute(\"SELECT count(*) FROM CouponInstance WHERE status='AVAILABLE'\").fetchone()[0]\n"
+        "print(f'DB_OK users={n_user} orders={n_order} coupons={n_coupon} campaigns={n_camp} instances={n_inst} available={n_avail}')\n"
+        "if n_user < 1 or n_coupon < 1 or n_camp < 1 or n_inst != 1400 or n_avail != 1400:\n"
+        "    raise SystemExit('production coupon instances are not the original 1400; abort')\n"
         "con.close()\n"
         "PY",
     )

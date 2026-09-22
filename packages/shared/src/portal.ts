@@ -84,6 +84,9 @@ export type HomeSectionEntry = {
   visible: boolean;
 };
 
+/** 独立账号中心（account 子域）。必须用绝对地址，避免被当成主站相对路径。 */
+export const ACCOUNT_CENTER_HREF = "https://account.yydsxwh.com/";
+
 /** 无序配置时的默认：联系我们 → 主视觉 → 横幅 → 门户入口 → 热门课程 → 热门约搭 */
 export const DEFAULT_HOME_SECTION_ORDER: HomeSectionEntry[] =
   HOME_SECTION_IDS.map((id) => ({ id, visible: true }));
@@ -142,6 +145,8 @@ export const DEFAULT_PORTAL: PortalConfig = {
     { key: "forum", label: "论坛", href: "/forum", comingSoon: false },
     // 仍出现在 CMS 开关里；顶栏运行时并进「软件产品」分区，不单独占一位
     { key: "games", label: "游戏中心", href: "/games", comingSoon: true },
+    // 独立账号中心：顶栏同页跳转完整外链；库里无此项时 mergePortalNav 补到末尾
+    { key: "account-center", label: "账号中心", href: ACCOUNT_CENTER_HREF },
   ],
   contact: structuredClone(DEFAULT_PORTAL_CONTACT),
   homeSectionOrder: structuredClone(DEFAULT_HOME_SECTION_ORDER),
@@ -263,7 +268,46 @@ function mergePortalNav(
     seenKeys.add(defaultItem.key);
   }
 
-  return merged.slice(0, 20);
+  const trimmed = merged.slice(0, 20);
+  const hasAccountCenter = trimmed.some(
+    (item) =>
+      item.key === "account-center" ||
+      item.href === ACCOUNT_CENTER_HREF ||
+      item.label === "账号中心",
+  );
+  // 满 20 项时默认项会被裁掉；账号中心必须留下，宁可少显示一个普通入口
+  return ensureAccountCenterNav(
+    hasAccountCenter ? trimmed : merged.slice(0, 19),
+  );
+}
+
+/**
+ * 账号中心必须始终出现在顶栏，且指向独立子域。
+ * CMS 旧数据可能关掉、改成 /account、或漏掉该项——运行时纠正，避免入口被永久吞掉。
+ */
+function ensureAccountCenterNav(nav: PortalNavLink[]): PortalNavLink[] {
+  const index = nav.findIndex(
+    (item) =>
+      item.key === "account-center" ||
+      item.href === ACCOUNT_CENTER_HREF ||
+      item.label === "账号中心",
+  );
+  if (index >= 0) {
+    const current = nav[index];
+    nav[index] = {
+      ...current,
+      key: "account-center",
+      href: ACCOUNT_CENTER_HREF,
+      enabled: true,
+      comingSoon: false,
+      label: current.label || "账号中心",
+    };
+    return nav;
+  }
+  return [
+    ...nav,
+    { key: "account-center", label: "账号中心", href: ACCOUNT_CENTER_HREF },
+  ];
 }
 
 function normalizeContact(

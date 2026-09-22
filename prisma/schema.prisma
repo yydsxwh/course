@@ -9,15 +9,15 @@ datasource db {
 
 model User {
   id           String             @id @default(cuid())
+  /// account OIDC 的稳定用户标识（sub=usr_xxx）。本地行只是业务投影，不是身份源。
+  accountSub   String?            @unique
   email        String             @unique
   passwordHash String
   /// 是否已设置可用登录密码；手机/微信自动注册且未设密码时为 false
   passwordSet  Boolean            @default(true)
-  /// 登出时自增；JWT.sv 对不上即视为已失效。生产库已有此列，必须保留。
+  /// 登出时自增；JWT.sv 对不上即视为已失效，避免旧 Cookie 重放
   sessionEpoch Int                @default(0)
   name         String
-  /// 对外展示用数字号（生产库已有此列，必须保留）
-  kkNumber     Int?
   /// 账号密码登录用的登录名（小写存储）；空/null 表示未开通账号登录，与邮箱登录分开
   username     String?            @unique
   bio          String             @default("")
@@ -90,6 +90,8 @@ model User {
   docsDocuments        DocsDocument[]
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
+  /// 学员编号（历史功能写入；线上库 46 条数据保留，功能代码后续恢复）
+  kkNumber             Int?
 
   @@index([forumUniversityId])
   @@index([roleApplicationStatus])
@@ -472,13 +474,14 @@ model SiteSettings {
   smsSignName String @default("")
   /// 模板 CODE，须含 ${code} 变量
   smsTemplateCode String @default("")
-  smsTemplateCodeLogin    String @default("")
-  smsTemplateCodeRegister String @default("")
-  smsTemplateCodeBind     String @default("")
   /// 测试模式：不调运营商，验证码写服务端日志；可配固定码便于联调
   smsTestMode Boolean @default(true)
   /// 测试固定验证码（仅 testMode 时生效）；空则每次随机并打日志
   smsTestFixedCode String @default("123456")
+  /// 分场景短信模板 CODE（历史功能写入；线上数据保留，功能代码后续恢复）
+  smsTemplateCodeLogin    String?
+  smsTemplateCodeRegister String?
+  smsTemplateCodeBind     String?
 
   /// 全站背景音乐歌单（JSON）：开关、循环、曲目列表（upload/url/stock/netease）
   bgMusicJson String @default("")
@@ -781,13 +784,14 @@ model CouponRedemption {
   id        String   @id @default(cuid())
   couponId  String
   userId    String
-  /// 占用/核销对应的订单；取消待支付订单时按此释放
-  orderId   String?  @unique
   coupon    Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// 占用/核销对应的订单；可空，避免把已有 (couponId,userId) 唯一约束改掉
+  orderId   String?
   createdAt DateTime @default(now())
 
-  @@index([couponId, userId])
+  @@unique([couponId, userId])
+  @@index([orderId])
 }
 
 /// 优惠券活动/批次：同一批独立券的公共规则。

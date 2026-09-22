@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { Suspense } from "react";
+import { AuthEntryLinks } from "@/components/auth-entry-links";
 import { ChatUnreadBadge } from "@/components/chat/chat-unread-badge";
 import { SiteHeaderNav, type HeaderNavLink } from "@/components/site-header-nav";
 import { SiteHomeClock } from "@/components/site-home-clock";
@@ -14,6 +16,7 @@ import { translateMessage } from "@andyyyds/shared/i18n/messages";
 import { navHoverMessageKey, navMessageKey } from "@andyyyds/shared/i18n/nav-labels";
 import { typoRoleClass, typoRoleStyle } from "@andyyyds/shared/site-typography";
 import { canAccessStudio, canManageDecorate, hasRole, isAdmin } from "@andyyyds/shared/roles";
+import { ACCOUNT_CENTER_HREF } from "@andyyyds/shared/portal";
 import {
   getDecorateConfig,
   getPortalConfig,
@@ -97,6 +100,7 @@ export async function SiteHeader() {
           { key: "products", href: "/products", label: "软件产品" },
           { key: "forum", href: "/forum", label: "论坛" },
           { key: "games", href: "/games", label: "游戏中心" },
+          { key: "account-center", href: ACCOUNT_CENTER_HREF, label: "账号中心" },
         ];
 
   const mappedPortalLinks: HeaderNavLink[] = await Promise.all(
@@ -227,38 +231,50 @@ export async function SiteHeader() {
               </form>
             </>
           ) : (
-            <>
-              <Link
-                href="/login"
-                className={`btn btn-secondary btn-compact px-2.5 text-sm sm:px-4 ${typoRoleClass("nav")}`}
-                style={typoRoleStyle("nav")}
-              >
-                {t("nav.login")}
-              </Link>
-              <Link
-                href="/register"
-                className={`btn btn-fire btn-compact hidden min-[420px]:inline-flex sm:px-4 ${typoRoleClass("nav")}`}
-                style={typoRoleStyle("nav")}
-              >
-                {t("nav.register")}
-              </Link>
-            </>
+            <Suspense
+              fallback={
+                <>
+                  <Link
+                    href="/login"
+                    className={`btn btn-secondary btn-compact px-2.5 text-sm sm:px-4 ${typoRoleClass("nav")}`}
+                    style={typoRoleStyle("nav")}
+                  >
+                    {t("nav.login")}
+                  </Link>
+                  <Link
+                    href="/register"
+                    className={`btn btn-fire btn-compact hidden min-[420px]:inline-flex sm:px-4 ${typoRoleClass("nav")}`}
+                    style={typoRoleStyle("nav")}
+                  >
+                    {t("nav.register")}
+                  </Link>
+                </>
+              }
+            >
+              <AuthEntryLinks
+                loginLabel={t("nav.login")}
+                registerLabel={t("nav.register")}
+                loginClassName={`btn btn-secondary btn-compact px-2.5 text-sm sm:px-4 ${typoRoleClass("nav")}`}
+                registerClassName={`btn btn-fire btn-compact hidden min-[420px]:inline-flex sm:px-4 ${typoRoleClass("nav")}`}
+                loginStyle={typoRoleStyle("nav")}
+                registerStyle={typoRoleStyle("nav")}
+              />
+            </Suspense>
           )}
         </div>
       </div>
     </header>
+    {/* 颗秒标始终浮动在首页，不跟门户画布走，避免一开自由布局就失踪 */}
+    <SiteHomeLogo
+      config={decorate.homeLogo}
+      canDrag={Boolean(session && canManageDecorate(session))}
+    />
     {/* 自由布局启用后时钟改走首页画布，避免顶栏与画布各画一只 */}
     {decorate.homeWidgetLayout?.enabled ? null : (
-      <>
-        <SiteHomeLogo
-          config={decorate.homeLogo}
-          canDrag={Boolean(session && canManageDecorate(session))}
-        />
-        <SiteHomeClock
-          config={decorate.homeClock}
-          canDrag={Boolean(session && canManageDecorate(session))}
-        />
-      </>
+      <SiteHomeClock
+        config={decorate.homeClock}
+        canDrag={Boolean(session && canManageDecorate(session))}
+      />
     )}
     <SiteHomePngLogos
       config={decorate.homeLogo}
