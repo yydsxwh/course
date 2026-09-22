@@ -30,29 +30,40 @@ function getSecret() {
   return new TextEncoder().encode(secret);
 }
 
-function parseCookie(header, name) {
-  if (!header) return undefined;
+function parseCookieValues(header, name) {
+  if (!header) return [];
+  const values = [];
   for (const part of header.split(";")) {
-    const [k, ...rest] = part.trim().split("=");
-    if (k === name) return decodeURIComponent(rest.join("="));
+    const eq = part.indexOf("=");
+    if (eq <= 0) continue;
+    if (part.slice(0, eq).trim() !== name) continue;
+    const raw = part.slice(eq + 1).trim();
+    if (!raw) continue;
+    try {
+      values.push(decodeURIComponent(raw));
+    } catch {
+      values.push(raw);
+    }
   }
-  return undefined;
+  return values;
 }
 
 async function userIdFromReq(req) {
   const url = new URL(req.url || "", "http://localhost");
-  const token =
-    url.searchParams.get("token") ||
-    parseCookie(req.headers.cookie, COOKIE) ||
-    undefined;
-  if (!token) return null;
-  try {
-    const { payload } = await jwtVerify(token, getSecret());
-    const id = String(payload.id || "");
-    return id || null;
-  } catch {
-    return null;
+  const queryToken = url.searchParams.get("token");
+  const tokens = queryToken
+    ? [queryToken]
+    : parseCookieValues(req.headers.cookie, COOKIE);
+  for (const token of tokens) {
+    try {
+      const { payload } = await jwtVerify(token, getSecret());
+      const id = String(payload.id || "");
+      if (id) return id;
+    } catch {
+      /* 账号中心的同名 Cookie 用另一把密钥，跳过继续找本站会话 */
+    }
   }
+  return null;
 }
 
 function getOrCreateHub() {

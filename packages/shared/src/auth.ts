@@ -10,12 +10,13 @@
  */
 
 import { SignJWT, jwtVerify } from "jose";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import {
   SESSION_COOKIE_NAME,
   applySessionCookie,
   clearSessionCookie,
   isSessionEpochValid,
+  readCookieValues,
 } from "./auth-session-cookie";
 import { prisma } from "./db";
 import { hashPassword, makeReferralCode, verifyPassword } from "./password";
@@ -116,11 +117,7 @@ export async function destroySession() {
   clearSessionCookie(jar);
 }
 
-export async function getSession(): Promise<SessionUser | null> {
-  const jar = await cookies();
-  const token = jar.get(SESSION_COOKIE_NAME)?.value;
-  if (!token) return null;
-
+async function sessionFromToken(token: string): Promise<SessionUser | null> {
   try {
     const { payload } = await jwtVerify(token, getSecret());
     const id = String(payload.id);
@@ -187,6 +184,19 @@ export async function getSession(): Promise<SessionUser | null> {
   } catch {
     return null;
   }
+}
+
+export async function getSession(): Promise<SessionUser | null> {
+  const jar = await cookies();
+  const headerStore = await headers();
+  const tokens = readCookieValues(headerStore.get("cookie"), SESSION_COOKIE_NAME);
+  const fallback = jar.get(SESSION_COOKIE_NAME)?.value;
+  if (fallback && !tokens.includes(fallback)) tokens.push(fallback);
+  for (const token of tokens) {
+    const session = await sessionFromToken(token);
+    if (session) return session;
+  }
+  return null;
 }
 
 export async function requireUser() {

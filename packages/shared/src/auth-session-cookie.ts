@@ -60,6 +60,28 @@ export function clearSessionCookie(target: CookieSetter) {
   target.set(SESSION_COOKIE_NAME, "", sessionCookieClearOptions());
 }
 
+/** 同名 Cookie 可能有多条（例如账号中心的 Domain 与本站 host-only）。按出现顺序全部取出。 */
+export function readCookieValues(
+  cookieHeader: string | null | undefined,
+  name: string,
+): string[] {
+  if (!cookieHeader) return [];
+  const values: string[] = [];
+  for (const part of cookieHeader.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq <= 0) continue;
+    if (part.slice(0, eq).trim() !== name) continue;
+    const raw = part.slice(eq + 1).trim();
+    if (!raw) continue;
+    try {
+      values.push(decodeURIComponent(raw));
+    } catch {
+      values.push(raw);
+    }
+  }
+  return values;
+}
+
 /** JWT.sv 与用户 sessionEpoch 对不上则视为已登出（防旧 Cookie 重放） */
 export function isSessionEpochValid(
   tokenEpoch: unknown,

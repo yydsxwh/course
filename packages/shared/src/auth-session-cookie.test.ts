@@ -5,11 +5,19 @@ import {
   applySessionCookie,
   clearSessionCookie,
   isSessionEpochValid,
+  readCookieValues,
   sessionCookieClearOptions,
   sessionCookieWriteOptions,
 } from "./auth-session-cookie";
 
 assert.equal(SESSION_COOKIE_NAME, "yyds_session");
+assert.deepEqual(
+  readCookieValues(
+    "yyds_session=account-token; yyds_locale=zh-Hans; yyds_session=course-token",
+    SESSION_COOKIE_NAME,
+  ),
+  ["account-token", "course-token"],
+);
 assert.equal(SESSION_COOKIE_PATH, "/");
 
 {
