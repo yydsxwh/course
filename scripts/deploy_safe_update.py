@@ -340,12 +340,24 @@ def main() -> int:
     # 依赖可能有变更；不跑 seed，避免清业务数据
     run(client, f"cd {REMOTE_DIR} && npm install", timeout=900)
     run(client, f"cd {REMOTE_DIR} && npx prisma generate")
-    # 推 schema 前备份生产库；rsync 已排除 *.db，不会覆盖线上数据
+    # 推 schema 前用 SQLite backup API 做一致性备份；rsync 已排除 *.db。
     run(
         client,
-        f"mkdir -p {REMOTE_DIR}/.deploy_backup && "
-        f"cp -a {REMOTE_DIR}/prisma/prod.db "
-        f"{REMOTE_DIR}/.deploy_backup/prod.db.$(date +%Y%m%d%H%M%S)",
+        "python3 - <<'PY'\n"
+        "import os, sqlite3, time\n"
+        f"root = '{REMOTE_DIR}'\n"
+        "os.makedirs(root + '/.deploy_backup', exist_ok=True)\n"
+        "src = root + '/prisma/prod.db'\n"
+        "dst = root + '/.deploy_backup/prod.db.' + time.strftime('%Y%m%d%H%M%S')\n"
+        "src_con = sqlite3.connect(src)\n"
+        "dst_con = sqlite3.connect(dst)\n"
+        "with dst_con:\n"
+        "    src_con.backup(dst_con)\n"
+        "dst_con.close()\n"
+        "src_con.close()\n"
+        "print('BACKUP', dst, os.path.getsize(dst))\n"
+        "PY",
+        timeout=120,
     )
     # 推 schema 前看差异。出现 DROP 就停，禁止 --accept-data-loss。
     diff_sql = run(
