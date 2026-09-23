@@ -23,6 +23,8 @@ export type BuyerCouponView = {
   expiresAt: string | null;
   available: boolean;
   reason?: string;
+  /** 这张券被哪张待支付订单占用；仅本人可见，用于继续支付或取消 */
+  reservedOrderId?: string;
 };
 
 export async function listCouponsForBuyer(
@@ -60,6 +62,16 @@ export async function listCouponsForBuyer(
 
   const available: BuyerCouponView[] = [];
   const unavailable: BuyerCouponView[] = [];
+  const reservedIds = rows
+    .map((row) => row.reservedOrderId)
+    .filter((id): id is string => Boolean(id));
+  const reservedOrders = reservedIds.length
+    ? await db.order.findMany({
+        where: { id: { in: reservedIds }, userId: input.userId },
+        select: { id: true, courseId: true, status: true },
+      })
+    : [];
+  const reservedById = new Map(reservedOrders.map((order) => [order.id, order]));
 
   for (const row of rows) {
     const campaign = await loadCampaignRule(db, row.campaignId);
@@ -86,10 +98,16 @@ export async function listCouponsForBuyer(
       continue;
     }
     if (effective === "RESERVED" && row.reservedOrderId) {
+      const reserved = reservedById.get(row.reservedOrderId);
+      const sameProduct = reserved?.courseId === course.id && reserved.status === "PENDING";
       unavailable.push({
         ...base,
         available: false,
-        reason: "你有未支付订单正在使用这张优惠券",
+        reason: sameProduct
+          ? "已用于待支付订单"
+          : "你有未支付订单正在使用这张优惠券",
+        reservedOrderId:
+          reserved?.status === "PENDING" ? reserved.id : undefined,
       });
       continue;
     }

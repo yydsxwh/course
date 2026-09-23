@@ -26,6 +26,14 @@ type AvailableCoupon = {
   expiresAt: string | null;
   available?: boolean;
   reason?: string;
+  reservedOrderId?: string;
+};
+
+type PaymentConflict = {
+  orderId: string;
+  orderNo: string;
+  amount: number;
+  discount: number;
 };
 
 type Props = {
@@ -77,6 +85,7 @@ export function PurchasePanel({
   const [available, setAvailable] = useState<AvailableCoupon[]>([]);
   const [unavailable, setUnavailable] = useState<AvailableCoupon[]>([]);
   const [message, setMessage] = useState("");
+  const [conflict, setConflict] = useState<PaymentConflict | null>(null);
   const [loading, setLoading] = useState(false);
   const buyingRef = useRef(false);
   const [formAnswers, setFormAnswers] = useState<OrderFormAnswers>({});
@@ -116,7 +125,11 @@ export function PurchasePanel({
       setAvailable(list);
       setUnavailable(blocked);
       if (typed) setCouponCode(typed);
-      if (hit) setSelectedCouponId(hit.id);
+      const best = hit || list[0];
+      if (best) {
+        setSelectedCouponId(best.id);
+        setCouponCode(best.code);
+      }
     })();
     return () => {
       cancelled = true;
@@ -137,8 +150,83 @@ export function PurchasePanel({
         ?.discountCents || 0
     );
   })();
-  const previewPay = Math.max(price - previewDiscount, 0);
+  const previewPay = Math.max(price - Math.min(previewDiscount, price), 0);
   const willZeroPay = !isFree && price > 0 && previewDiscount > 0 && previewPay === 0;
+  const selectedCoupon = available.find((c) => c.id === selectedCouponId);
+
+  async function recoverOpenOrder() {
+    try {
+      const res = await fetch(
+        `/api/orders?courseId=${encodeURIComponent(courseId)}`,
+      );
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (!data.orderId) return false;
+      if (data.enrolled || data.status === "PAID" || data.amount === 0) {
+        router.push(goLearn);
+        router.refresh();
+        return true;
+      }
+      if (data.status === "PENDING") {
+        router.push(`/checkout/${data.orderId}`);
+        return true;
+      }
+    } catch {
+      return false;
+    }
+    return false;
+  }
+
+  async function cancelReservedOrder(orderId: string, retryBuy = false) {
+    if (buyingRef.current) return;
+    buyingRef.current = true;
+    setLoading(true);
+    setMessage("");
+    let cancelled = false;
+    try {
+      const res = await fetch(`/api/orders/${orderId}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessage(
+          typeof data.error === "string" && data.error.trim()
+            ? data.error
+            : "取消订单失败",
+        );
+        if (data.conflict?.orderId) {
+          setConflict({
+            orderId: String(data.conflict.orderId),
+            orderNo: String(data.conflict.orderNo || ""),
+            amount: Number(data.conflict.amount || 0),
+            discount: Number(data.conflict.discount || 0),
+          });
+        }
+        return;
+      }
+      cancelled = true;
+      setConflict(null);
+      if (!retryBuy) setSelectedCouponId("");
+      router.refresh();
+      const listed = await fetch(
+        `/api/coupons/available?courseId=${encodeURIComponent(courseId)}`,
+      );
+      if (listed.ok) {
+        const body = await listed.json();
+        setAvailable((body.coupons || []) as AvailableCoupon[]);
+        setUnavailable((body.unavailable || []) as AvailableCoupon[]);
+      }
+      setMessage(
+        retryBuy
+          ? "原订单已取消，正在按当前优惠重新开通…"
+          : "原订单已取消，优惠券已释放。可以重新选择。",
+      );
+    } finally {
+      buyingRef.current = false;
+      setLoading(false);
+    }
+    if (cancelled && retryBuy) {
+      await buy();
+    }
+  }
 
   function pickCoupon(coupon: AvailableCoupon) {
     setSelectedCouponId(coupon.id);
@@ -151,7 +239,7 @@ export function PurchasePanel({
   }
 
   async function buy() {
-    if (buyingRef.current || loading) return;
+    if (buyingRef.current) return;
     if (fields.length > 0) {
       const check = validateOrderFormAnswers(orderForm, formAnswers);
       if (!check.ok) {
@@ -163,6 +251,7 @@ export function PurchasePanel({
     buyingRef.current = true;
     setLoading(true);
     setMessage("");
+    setConflict(null);
     let referralCode: string | undefined;
     try {
       referralCode =
@@ -185,10 +274,20 @@ export function PurchasePanel({
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
+        if (data.code === "PAYMENT_IN_PROGRESS" && data.conflict?.orderId) {
+          setConflict({
+            orderId: String(data.conflict.orderId),
+            orderNo: String(data.conflict.orderNo || ""),
+            amount: Number(data.conflict.amount || 0),
+            discount: Number(data.conflict.discount || 0),
+          });
+        }
         setMessage(
           typeof data.error === "string" && data.error.trim()
             ? data.error
-            : "下单失败，请稍后重试",
+            : res.status === 401
+              ? "请先登录"
+              : "下单失败，请稍后重试",
         );
         if (res.status === 401) router.push("/login");
         return;
@@ -205,9 +304,13 @@ export function PurchasePanel({
       const timedOut =
         error instanceof DOMException &&
         (error.name === "TimeoutError" || error.name === "AbortError");
+      if (timedOut) {
+        const recovered = await recoverOpenOrder();
+        if (recovered) return;
+      }
       setMessage(
         timedOut
-          ? "下单超时，请刷新后查看订单是否已生成"
+          ? "下单超时。请刷新页面确认订单，不要重复支付。"
           : "网络异常，请稍后重试",
       );
     } finally {
@@ -289,13 +392,20 @@ export function PurchasePanel({
               : `¥${(price / 100).toFixed(price % 100 === 0 ? 0 : 2)}`}
         </div>
       )}
-      {previewDiscount > 0 && !hidePriceDisplay ? (
-        <p className="mt-1 text-sm text-[var(--fire)]">
-          已选优惠 -{formatPrice(previewDiscount)}（原价 {formatPrice(price)}）
-          {willZeroPay
-            ? " · 抵扣后 0 元，确认后直接开通，无需支付"
-            : ""}
-        </p>
+      {previewDiscount > 0 ? (
+        <div className="mt-2 space-y-1 text-sm">
+          <p className="text-[var(--muted)]">原价 {formatPrice(price)}</p>
+          <p className="text-[var(--fire)]">
+            优惠 -{formatPrice(Math.min(previewDiscount, price))}
+            {selectedCoupon
+              ? ` · ${selectedCoupon.title} · 券号 ${selectedCoupon.code}`
+              : ""}
+          </p>
+          <p className="font-medium text-[var(--ink)]">
+            应付 {formatPrice(previewPay)}
+            {willZeroPay ? " · 确认后直接开通，无需支付" : ""}
+          </p>
+        </div>
       ) : (
         <p className="mt-2 text-sm text-[var(--muted)]">
           {payHint ||
@@ -368,7 +478,27 @@ export function PurchasePanel({
                     </div>
                     <div className="mt-0.5 text-xs text-red-700">
                       {c.reason || "当前不可用"}
+                      {c.code ? ` · 券号 ${c.code}` : ""}
                     </div>
+                    {c.reservedOrderId ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="btn min-h-11 px-3 text-xs"
+                          onClick={() => router.push(`/checkout/${c.reservedOrderId}`)}
+                        >
+                          继续支付
+                        </button>
+                        <button
+                          type="button"
+                          className="btn min-h-11 px-3 text-xs"
+                          disabled={loading}
+                          onClick={() => cancelReservedOrder(c.reservedOrderId!)}
+                        >
+                          取消原订单
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -382,7 +512,7 @@ export function PurchasePanel({
         </div>
       ) : null}
       <button
-        className="btn btn-accent mt-4 w-full"
+        className="btn btn-accent mt-4 min-h-11 w-full"
         disabled={loading}
         onClick={buy}
         type="button"
@@ -402,6 +532,26 @@ export function PurchasePanel({
               : t("cta.buy")}
       </button>
       {message ? <p className="mt-3 text-sm text-red-700">{message}</p> : null}
+      {conflict ? (
+        <div className="mt-3 flex flex-col gap-2">
+          <button
+            type="button"
+            className="btn min-h-11 w-full"
+            onClick={() => router.push(`/checkout/${conflict.orderId}`)}
+          >
+            继续支付原订单
+            {conflict.orderNo ? `（${conflict.orderNo}）` : ""}
+          </button>
+          <button
+            type="button"
+            className="btn min-h-11 w-full"
+            disabled={loading}
+            onClick={() => cancelReservedOrder(conflict.orderId, true)}
+          >
+            取消原订单并使用当前优惠
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
