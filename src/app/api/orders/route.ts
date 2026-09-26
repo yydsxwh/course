@@ -6,7 +6,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSession } from "@andyyyds/shared/auth";
-import { createProductOrder } from "@andyyyds/shared/create-order";
+import { createProductOrder, fulfillPendingZeroOrder } from "@andyyyds/shared/create-order";
 import { prisma } from "@andyyyds/shared/db";
 import { logOrderError, orderErrorPayload } from "@andyyyds/shared/order-errors";
 import { getOrderFormConfig } from "@andyyyds/shared/site-settings";
@@ -22,6 +22,46 @@ const schema = z.object({
   specLabel: z.string().max(200).optional(),
   referralCode: z.string().max(32).optional(),
 });
+
+export async function GET(req: Request) {
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "请先登录" }, { status: 401 });
+  }
+  const courseId = new URL(req.url).searchParams.get("courseId")?.trim() || "";
+  if (!courseId) {
+    return NextResponse.json({ error: "缺少课程" }, { status: 400 });
+  }
+  const order = await prisma.order.findFirst({
+    where: {
+      userId: session.id,
+      courseId,
+      status: { in: ["PENDING", "PAID"] },
+    },
+    orderBy: { createdAt: "desc" },
+    include: { course: { select: { slug: true, productType: true } } },
+  });
+  if (!order) {
+    return NextResponse.json({ order: null });
+  }
+  if (order.status === "PENDING" && order.amount <= 0) {
+    await fulfillPendingZeroOrder(prisma, order.id);
+  }
+  const fresh = await prisma.order.findUnique({
+    where: { id: order.id },
+    include: { course: { select: { slug: true, productType: true } } },
+  });
+  if (!fresh) return NextResponse.json({ order: null });
+  return NextResponse.json({
+    orderId: fresh.id,
+    status: fresh.status,
+    amount: fresh.amount,
+    discount: fresh.discount,
+    slug: fresh.course.slug,
+    productType: fresh.course.productType,
+    enrolled: fresh.status === "PAID",
+  });
+}
 
 export async function POST(req: Request) {
   const session = await getSession();
@@ -51,7 +91,10 @@ export async function POST(req: Request) {
     return NextResponse.json(result);
   } catch (error) {
     logOrderError("orders:create", error);
-    const { status, error: message } = orderErrorPayload(error);
-    return NextResponse.json({ error: message }, { status });
+    const { status, error: message, code, conflict } = orderErrorPayload(error);
+    return NextResponse.json(
+      { error: message, ...(code ? { code } : {}), ...(conflict ? { conflict } : {}) },
+      { status },
+    );
   }
 }

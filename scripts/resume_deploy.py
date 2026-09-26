@@ -1,99 +1,41 @@
+"""
+不要对现有生产站运行本脚本。
+
+它会覆盖远端 .env、执行 prisma db push 和 seed，可能清掉业务数据。
+线上发布只用 scripts/deploy_safe_update.py。
+
+仓库曾把认证密钥写死在这个文件里。该值视为已经泄露，站长需要在生产密钥管理里轮换 AUTH_SECRET。
+轮换会使旧登录会话失效。这里不再保存任何密钥；缺少环境变量时直接失败。
+未经授权不要重写 Git 历史。
+"""
+
+from __future__ import annotations
+
 import os
 import sys
-import paramiko
-
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-
-HOST = "47.242.157.181"
-REMOTE_DIR = "/var/www/yyds-course-platform"
-DOMAIN = "www.yydsxwh.com"
-AUTH_SECRET = "yyds-prod-secret-change-me-1785968131"
 
 
-def connect():
-    c = paramiko.SSHClient()
-    c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    key = paramiko.Ed25519Key.from_private_key_file(os.path.expanduser(r"~\.ssh\yyds_aliyun"))
-    c.connect(HOST, username="admin", pkey=key, look_for_keys=False, allow_agent=False, timeout=30)
-    return c
-
-
-def run(c, cmd, timeout=1200):
-    print(f"$ {cmd}", flush=True)
-    _, stdout, stderr = c.exec_command(cmd, timeout=timeout)
-    out = stdout.read().decode("utf-8", errors="replace")
-    err = stderr.read().decode("utf-8", errors="replace")
-    code = stdout.channel.recv_exit_status()
-    if out.strip():
-        print(out[-4000:], flush=True)
-    if err.strip():
-        print(err[-4000:], flush=True)
-    if code != 0:
-        raise RuntimeError(f"fail {code}: {cmd}")
-    return out
-
-
-def main():
-    c = connect()
-    run(c, f"ls -la {REMOTE_DIR} | head")
-    run(c, f"test -f {REMOTE_DIR}/package.json && echo HAS_PKG=yes")
-    run(c, f"test -d {REMOTE_DIR}/node_modules && echo HAS_NM=yes || echo HAS_NM=no")
-
-    # ensure env
-    env_content = f"""AUTH_SECRET="{AUTH_SECRET}"
-DATABASE_URL="file:./prod.db"
-NODE_ENV="production"
-NEXT_PUBLIC_SITE_URL="https://{DOMAIN}"
-"""
-    run(c, f"cat > {REMOTE_DIR}/.env <<'EOF'\n{env_content}EOF")
-
-    run(c, f"cd {REMOTE_DIR} && npm ci")
-    run(c, f"cd {REMOTE_DIR} && npx prisma generate")
-    run(c, f"cd {REMOTE_DIR} && npx prisma db push")
-    run(c, f"cd {REMOTE_DIR} && npx tsx prisma/seed.ts")
-    run(c, f"cd {REMOTE_DIR} && npm run build")
-
-    run(c, "pm2 delete yyds-course || true")
-    run(c, f"cd {REMOTE_DIR} && pm2 start npm --name yyds-course -- start -- -p 3000")
-    run(c, "pm2 save")
-    startup = run(c, "pm2 startup systemd -u admin --hp /home/admin")
-    for line in startup.splitlines():
-        if "sudo" in line and "env PATH" in line:
-            run(c, line.strip())
-            break
-
-    nginx_conf = f"""
-server {{
-    listen 80;
-    server_name {DOMAIN} yydsxwh.com {HOST};
-
-    client_max_body_size 320m;
-
-    location / {{
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-        proxy_read_timeout 300s;
-        proxy_send_timeout 300s;
-    }}
-}}
-"""
-    run(c, "sudo tee /etc/nginx/sites-available/yyds-course > /dev/null <<'EOF'\n" + nginx_conf + "EOF")
-    run(c, "sudo ln -sfn /etc/nginx/sites-available/yyds-course /etc/nginx/sites-enabled/yyds-course")
-    run(c, "sudo rm -f /etc/nginx/sites-enabled/default")
-    run(c, "sudo nginx -t && sudo systemctl restart nginx && sudo systemctl enable nginx")
-    run(c, "pm2 status")
-    run(c, "curl -s -o /dev/null -w '%{http_code}\\n' http://127.0.0.1:3000/")
-    run(c, f"curl -s -o /dev/null -w '%{{http_code}}\\n' -H 'Host: {DOMAIN}' http://127.0.0.1/")
-    print("DEPLOY_OK", flush=True)
-    c.close()
+def main() -> int:
+    print(
+        "refuse: resume_deploy.py rewrites .env and runs seed; use deploy_safe_update.py",
+        file=sys.stderr,
+    )
+    # 即使有人想强制执行，也必须从环境读取，禁止再把密钥写回仓库。
+    required = ("AUTH_SECRET", "DEPLOY_HOST", "DEPLOY_USER", "DEPLOY_SSH_KEY")
+    missing = [name for name in required if not (os.environ.get(name) or "").strip()]
+    if missing:
+        print(
+            "refuse: missing environment variables: " + ", ".join(missing),
+            file=sys.stderr,
+        )
+    if os.environ.get("ALLOW_RESUME_DEPLOY") != "1" or missing:
+        return 2
+    print(
+        "refuse: ALLOW_RESUME_DEPLOY does not re-enable seed or .env overwrite",
+        file=sys.stderr,
+    )
+    return 2
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

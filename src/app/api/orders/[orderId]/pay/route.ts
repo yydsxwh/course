@@ -13,6 +13,7 @@ import { createAlipayPagePay, createAlipayWapPay } from "@andyyyds/shared/alipay
 import { getSession } from "@andyyyds/shared/auth";
 import { prisma } from "@andyyyds/shared/db";
 import { answersComplete } from "@andyyyds/shared/order-form";
+import { fulfillPendingZeroOrder } from "@andyyyds/shared/create-order";
 import { fulfillPaidOrder } from "@andyyyds/shared/orders";
 import { getPaymentChannels, getPublicSiteUrl } from "@andyyyds/shared/payments";
 import {
@@ -104,6 +105,15 @@ export async function POST(
 
   if (!order || order.userId !== session.id) {
     return NextResponse.json({ error: "订单不存在" }, { status: 404 });
+  }
+  if (order.status === "PENDING" && order.amount <= 0) {
+    await fulfillPendingZeroOrder(prisma, order.id);
+    return NextResponse.json({
+      mode: "paid",
+      slug: order.course.slug,
+      productType: order.course.productType,
+      status: "PAID",
+    });
   }
   if (order.status === "PAID") {
     return NextResponse.json({

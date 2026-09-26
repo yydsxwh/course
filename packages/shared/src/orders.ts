@@ -15,9 +15,12 @@ import {
   notifyCourseAccessGroups,
 } from "@andyyyds/courses/lib/course-bundle";
 import { grantMathcodePaidOrder } from "@andyyyds/mathcode/lib/mathcode-billing";
+import type { PrismaClient } from "@prisma/client";
 import { fulfillCouponOnPaidOrder } from "./coupon-reservation";
 import { prisma } from "./db";
 import { settlePaidOrderSplit } from "./platform-settlement";
+
+type Db = PrismaClient;
 
 type FulfillInput = {
   orderId: string;
@@ -25,13 +28,15 @@ type FulfillInput = {
   payChannel?: string;
   /** 微信/支付宝侧交易号，便于对账 */
   providerTradeNo?: string;
+  /** 测试或不需要班级群通知时跳过事务外副作用 */
+  skipNotify?: boolean;
 };
 
 /**
  * 将订单标记为已支付并开通学习权限（幂等：已支付直接返回）。
  */
-export async function fulfillPaidOrder(input: FulfillInput) {
-  const existing = await prisma.order.findUnique({
+export async function fulfillPaidOrder(input: FulfillInput, db: Db = prisma) {
+  const existing = await db.order.findUnique({
     where: { id: input.orderId },
     include: { course: true },
   });
@@ -40,16 +45,16 @@ export async function fulfillPaidOrder(input: FulfillInput) {
   }
   // 已支付：仍补开 enrollment（含专栏子课；历史异常订单可能 PAID 却未报名）
   if (existing.status === "PAID") {
-    await grantProductAccess(prisma, {
+    await grantProductAccess(db, {
       userId: existing.userId,
       productId: existing.courseId,
     });
     // 识图壳：已支付回放也要补发页数（MathcodeGrant 按 orderId 幂等）
-    await grantMathcodePaidOrder(prisma, existing);
+    await grantMathcodePaidOrder(db, existing);
     return existing;
   }
 
-  const paidOrder = await prisma.$transaction(async (tx) => {
+  const paidOrder = await db.$transaction(async (tx) => {
     // 事务内再读一次，防止并发回调双写
     const current = await tx.order.findUnique({ where: { id: input.orderId } });
     if (!current) throw new Error("ORDER_NOT_FOUND");
@@ -121,9 +126,11 @@ export async function fulfillPaidOrder(input: FulfillInput) {
     });
   }, { timeout: 15000 });
 
-  await notifyCourseAccessGroups({
-    userId: paidOrder.userId,
-    productId: paidOrder.courseId,
-  });
+  if (!input.skipNotify) {
+    await notifyCourseAccessGroups({
+      userId: paidOrder.userId,
+      productId: paidOrder.courseId,
+    });
+  }
   return paidOrder;
 }

@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { CheckoutOrderForm } from "@/components/checkout-order-form";
+import { fulfillPendingZeroOrder } from "@andyyyds/shared/create-order";
 import { getSession } from "@andyyyds/shared/auth";
 import { prisma } from "@andyyyds/shared/db";
 import { parseStoredAnswers } from "@andyyyds/shared/order-form";
@@ -24,6 +25,11 @@ export default async function CheckoutPage({
     include: { course: true, coupon: true },
   });
   if (!order || order.userId !== session.id) notFound();
+
+  if (order.status === "PENDING" && order.amount <= 0) {
+    await fulfillPendingZeroOrder(prisma, order.id);
+    order.status = "PAID";
+  }
 
   if (order.status === "PAID") {
     // 约搭回活动详情；商城回订单；专栏回详情选子课；单课/资料进学习页

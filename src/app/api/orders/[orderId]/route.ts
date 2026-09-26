@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSession } from "@andyyyds/shared/auth";
-import { cancelOwnPendingOrder } from "@andyyyds/shared/create-order";
+import { cancelOwnPendingOrder, fulfillPendingZeroOrder } from "@andyyyds/shared/create-order";
 import { expireStalePendingOrders } from "@andyyyds/shared/coupon-reservation";
 import { prisma } from "@andyyyds/shared/db";
 import { logOrderError, orderErrorPayload } from "@andyyyds/shared/order-errors";
@@ -38,6 +38,19 @@ export async function GET(
 
   if (!order || order.userId !== session.id) {
     return NextResponse.json({ error: "订单不存在" }, { status: 404 });
+  }
+
+  if (order.status === "PENDING" && order.amount <= 0) {
+    await fulfillPendingZeroOrder(prisma, order.id);
+    order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        course: { select: { slug: true, title: true, productType: true } },
+      },
+    });
+    if (!order) {
+      return NextResponse.json({ error: "订单不存在" }, { status: 404 });
+    }
   }
 
   const channels = await getPaymentChannels();
@@ -128,7 +141,10 @@ export async function DELETE(
     return NextResponse.json(result);
   } catch (error) {
     logOrderError("orders:cancel", error);
-    const { status, error: message } = orderErrorPayload(error);
-    return NextResponse.json({ error: message }, { status });
+    const { status, error: message, code, conflict } = orderErrorPayload(error);
+    return NextResponse.json(
+      { error: message, ...(code ? { code } : {}), ...(conflict ? { conflict } : {}) },
+      { status },
+    );
   }
 }
