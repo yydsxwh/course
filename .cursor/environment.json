@@ -1,0 +1,11 @@
+{
+  "name": "网课资料 course platform",
+  "install": "bash .cursor/install.sh",
+  "terminals": [
+    {
+      "name": "dev-server",
+      "command": "npm run dev"
+    }
+  ],
+  "ports": [3000]
+}
