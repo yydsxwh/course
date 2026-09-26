@@ -2,6 +2,8 @@
 
 从 [Andyyyds](https://github.com/yydsxwh/Andyyyds) 拆出的网课资料产品：课程广场、资料广场、在线学习、创作者中心与素材库。
 
+生产环境里的网课仍跑在主站同一个 Next 进程和同一份 SQLite 上，停掉 `yyds-course` 会一起停。本仓库还不是单独的 `course.service`。支付和素材也还在主站实现里，迁移到 Platform 之前不要删。架构约束见 [yydsxwh/infra](https://github.com/yydsxwh/infra) 的 `docs/architecture/FAULT-ISOLATION.md`。
+
 ## 功能
 
 - 课程广场 / 资料广场（搜索、分类、页内 Tab 切换）
